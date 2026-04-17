@@ -1,3 +1,5 @@
+export type DrinkTag = 'Milk Tea' | 'Fruit Tea' | 'Matcha' | 'Slush' | 'Classic'
+
 export interface Shop {
   id: string
   name: string
@@ -7,6 +9,7 @@ export interface Shop {
   rating: number
   review_count: number
   image_url?: string
+  tags: DrinkTag[]
   created_at: string
 }
 
