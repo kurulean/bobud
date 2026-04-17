@@ -6,7 +6,9 @@ import { supabase } from '../src/lib/supabase'
 import { useAuthStore } from '../src/stores/authStore'
 
 export default function RootLayout() {
-  const { setSession, isGuest, initialized, session } = useAuthStore()
+  const isAuth = useAuthStore(s => !!s.session || s.isGuest)
+  const initialized = useAuthStore(s => s.initialized)
+  const setSession = useAuthStore(s => s.setSession)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -22,12 +24,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!initialized) return
-    if (isGuest || session) {
-      router.replace('/(tabs)')
-    } else {
-      router.replace('/')
-    }
-  }, [initialized, isGuest, session])
+    router.replace(isAuth ? '/(tabs)' : '/(auth)/login')
+  }, [initialized, isAuth])
 
   return (
     <SafeAreaProvider>

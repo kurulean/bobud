@@ -7,8 +7,8 @@ interface AuthState {
   isGuest: boolean
   initialized: boolean
   setSession: (session: Session | null) => void
-  setGuest: () => void
-  signOut: () => void
+  continueAsGuest: () => void
+  reset: () => void
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -16,10 +16,22 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isGuest: false,
   initialized: false,
-  setSession: (session) =>
-    set({ session, user: session?.user ?? null, isGuest: false, initialized: true }),
-  setGuest: () =>
-    set({ session: null, user: null, isGuest: true, initialized: true }),
-  signOut: () =>
-    set({ session: null, user: null, isGuest: false, initialized: true }),
+  setSession: (session) => set({
+    session,
+    user: session?.user ?? null,
+    isGuest: false,
+    initialized: true,
+  }),
+  continueAsGuest: () => set({
+    session: null,
+    user: null,
+    isGuest: true,
+    initialized: true,
+  }),
+  reset: () => set({
+    session: null,
+    user: null,
+    isGuest: false,
+    initialized: true,
+  }),
 }))
