@@ -1,0 +1,260 @@
+[
+  {
+    "name": "Kale Boost Tea",
+    "price": 9.99,
+    "calories": 180,
+    "category": "Signature"
+  },
+  {
+    "name": "Coconut Mango Boom",
+    "price": 8.99,
+    "calories": 200,
+    "category": "Signature"
+  },
+  {
+    "name": "Coconut Mango Boom (Large)",
+    "price": 9.99,
+    "calories": 280,
+    "category": "Signature"
+  },
+  {
+    "name": "Coconut Mango Blue",
+    "price": 8.49,
+    "calories": 190,
+    "category": "Signature"
+  },
+  {
+    "name": "Triple Supreme Matcha Latte",
+    "price": 9.99,
+    "calories": 260,
+    "category": "Signature"
+  },
+  {
+    "name": "Cloud Longjing Milk Tea",
+    "price": 9.49,
+    "calories": 250,
+    "category": "Signature"
+  },
+  {
+    "name": "Jasmine Milk Tea",
+    "price": 7.99,
+    "calories": 220,
+    "category": "Signature"
+  },
+  {
+    "name": "Crisp Grape Boom",
+    "price": 9.49,
+    "calories": 210,
+    "category": "Signature"
+  },
+  {
+    "name": "Crisp Grape Boom (Large)",
+    "price": 10.99,
+    "calories": 290,
+    "category": "Signature"
+  },
+  {
+    "name": "Hot Cloud Longjing Milk Tea",
+    "price": 9.49,
+    "calories": 250,
+    "category": "Hot Tea"
+  },
+  {
+    "name": "Hot Triple Supreme Matcha Latte",
+    "price": 8.99,
+    "calories": 260,
+    "category": "Hot Tea"
+  },
+  {
+    "name": "Hot Supreme Matcha Latte",
+    "price": 9.99,
+    "calories": 270,
+    "category": "Hot Tea"
+  },
+  {
+    "name": "Hot Black Milk Tea",
+    "price": 7.99,
+    "calories": 230,
+    "category": "Hot Tea"
+  },
+  {
+    "name": "Hot Cloud Matcha Latte",
+    "price": 9.99,
+    "calories": 240,
+    "category": "Hot Tea"
+  },
+  {
+    "name": "Hot Jasmine Milk Tea",
+    "price": 7.49,
+    "calories": 220,
+    "category": "Hot Tea"
+  },
+  {
+    "name": "Matcha Cloud Coconut Blue",
+    "price": 9.99,
+    "calories": 250,
+    "category": "Matcha"
+  },
+  {
+    "name": "Cloud Matcha Latte",
+    "price": 9.99,
+    "calories": 260,
+    "category": "Matcha"
+  },
+  {
+    "name": "Supreme Matcha Latte",
+    "price": 9.99,
+    "calories": 270,
+    "category": "Matcha"
+  },
+  {
+    "name": "Green Grape Boom",
+    "price": 9.99,
+    "calories": 200,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Cloud Green Grape",
+    "price": 9.49,
+    "calories": 210,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Mango Grapefruit Boom",
+    "price": 9.99,
+    "calories": 210,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Mango Grapefruit Boom (Large Cup)",
+    "price": 11.49,
+    "calories": 280,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Coconut Mango Boom (Large Cup)",
+    "price": 9.99,
+    "calories": 280,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Cloud Crisp Grape",
+    "price": 9.99,
+    "calories": 220,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Crisp Grape Boom (Large Cup)",
+    "price": 10.99,
+    "calories": 290,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Cloud Mango",
+    "price": 9.49,
+    "calories": 200,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Grapefruit Boom (Original)",
+    "price": 9.49,
+    "calories": 200,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Grapefruit Boom (Large Cup) (Original)",
+    "price": 10.99,
+    "calories": 270,
+    "category": "Fruit Tea"
+  },
+  {
+    "name": "Longjing Milk Tea",
+    "price": 7.99,
+    "calories": 240,
+    "category": "Milk Tea"
+  },
+  {
+    "name": "Black Milk Tea",
+    "price": 7.99,
+    "calories": 230,
+    "category": "Milk Tea"
+  },
+  {
+    "name": "Cloud Jasmine Tea(Original)",
+    "price": 6.99,
+    "calories": 210,
+    "category": "Milk Tea"
+  },
+  {
+    "name": "Supreme Brown Sugar Bobo Milk (Original)",
+    "price": 9.99,
+    "calories": 320,
+    "category": "Brown Sugar Boba"
+  },
+  {
+    "name": "Supreme Brown Sugar Bobo Milk Tea",
+    "price": 9.49,
+    "calories": 310,
+    "category": "Brown Sugar Boba"
+  },
+  {
+    "name": "Fluffy Cloud Mango",
+    "price": 11.99,
+    "calories": 300,
+    "category": "Cheese Cloud"
+  },
+  {
+    "name": "Fluffy Cloud Crisp Grape",
+    "price": 11.99,
+    "calories": 310,
+    "category": "Cheese Cloud"
+  },
+  {
+    "name": "Brown Sugar Bobo",
+    "price": 1.58,
+    "calories": 100,
+    "category": "Topping"
+  },
+  {
+    "name": "Sago",
+    "price": 0.98,
+    "calories": 80,
+    "category": "Topping"
+  },
+  {
+    "name": "Matcha Jelly",
+    "price": 0.98,
+    "calories": 60,
+    "category": "Topping"
+  },
+  {
+    "name": "Coconut Milk Jelly",
+    "price": 1.58,
+    "calories": 70,
+    "category": "Topping"
+  },
+  {
+    "name": "Grapefruit Pulp",
+    "price": 1.58,
+    "calories": 40,
+    "category": "Topping"
+  },
+  {
+    "name": "Cheese Cloud(Original)",
+    "price": 2.88,
+    "calories": 120,
+    "category": "Topping"
+  },
+  {
+    "name": "Matcha Cloud",
+    "price": 2.88,
+    "calories": 80,
+    "category": "Topping"
+  },
+  {
+    "name": "Light Cheese Cloud",
+    "price": 1.58,
+    "calories": 60,
+    "category": "Topping"
+  }
+]

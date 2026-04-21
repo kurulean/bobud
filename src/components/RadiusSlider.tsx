@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { View, StyleSheet, PanResponder } from 'react-native'
+import { useColors } from '../hooks/useColors'
 
 interface Props {
   value: number
@@ -15,6 +16,7 @@ export default function RadiusSlider({ value, min, max, step, onChange }: Props)
   const startValue = useRef(value)
   const valueRef = useRef(value)
   const onChangeRef = useRef(onChange)
+  const c = useColors()
 
   useEffect(() => { valueRef.current = value }, [value])
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
@@ -42,12 +44,15 @@ export default function RadiusSlider({ value, min, max, step, onChange }: Props)
 
   return (
     <View
-      style={styles.track}
+      style={[styles.track, { backgroundColor: c.border }]}
       onLayout={(e) => { trackWidth.current = e.nativeEvent.layout.width }}
       {...panResponder.panHandlers}
     >
-      <View style={[styles.fill, { width: `${percent * 100}%` }]} />
-      <View style={[styles.thumb, { left: `${percent * 100}%` }]} />
+      <View style={[styles.fill, { width: `${percent * 100}%`, backgroundColor: c.accent }]} />
+      <View style={[
+        styles.thumb,
+        { left: `${percent * 100}%`, backgroundColor: c.accent, borderColor: c.background },
+      ]} />
     </View>
   )
 }
@@ -55,13 +60,11 @@ export default function RadiusSlider({ value, min, max, step, onChange }: Props)
 const styles = StyleSheet.create({
   track: {
     height: 4,
-    backgroundColor: '#2A2A2A',
     borderRadius: 2,
     justifyContent: 'center',
   },
   fill: {
     height: 4,
-    backgroundColor: '#FFFFFF',
     borderRadius: 2,
   },
   thumb: {
@@ -69,7 +72,7 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
     marginLeft: -10,
     top: -8,
     shadowColor: '#000',

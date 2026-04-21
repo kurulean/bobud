@@ -15,6 +15,7 @@ interface MapState {
   setSelectedShop: (shop: ShopWithDistance | null) => void
   shops: Shop[]
   loading: boolean
+  error: string | null
   fetchShops: () => Promise<void>
 }
 
@@ -27,10 +28,16 @@ export const useMapStore = create<MapState>((set) => ({
   setSelectedShop: (selectedShop) => set({ selectedShop }),
   shops: [],
   loading: false,
+  error: null,
   fetchShops: async () => {
-    set({ loading: true })
-    const { data, error } = await supabase.from('shops').select('*')
-    if (!error && data) set({ shops: data as Shop[] })
-    set({ loading: false })
+    set({ loading: true, error: null })
+    try {
+      const { data, error } = await supabase.from('shops').select('*')
+      if (error) throw error
+      set({ shops: (data ?? []) as Shop[], loading: false })
+    } catch (e: any) {
+      console.error('[mapStore] fetchShops failed:', e.message)
+      set({ error: e.message ?? 'Failed to fetch shops', loading: false })
+    }
   },
 }))

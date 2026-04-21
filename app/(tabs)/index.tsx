@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native'
+import { View, Text, StyleSheet, TextInput, ActivityIndicator } from 'react-native'
 import MapView, { Marker } from 'react-native-maps'
 import * as Location from 'expo-location'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { router } from 'expo-router'
+import { Ionicons } from '@expo/vector-icons'
 import { useMapStore } from '../../src/stores/mapStore'
 import { haversineDistance } from '../../src/lib/geo'
 import RadiusSlider from '../../src/components/RadiusSlider'
+import ShopDetailSheet from '../../src/components/ShopDetailSheet'
+import { useColors } from '../../src/hooks/useColors'
 
 const DEFAULT_LOCATION = { latitude: 33.6846, longitude: -117.8265 }
 
@@ -16,10 +18,11 @@ export default function MapScreen() {
     radius, setRadius,
     userLocation, setUserLocation,
     selectedShop, setSelectedShop,
-    shops, loading, fetchShops,
+    shops, loading, error, fetchShops,
   } = useMapStore()
   const [search, setSearch] = useState('')
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const c = useColors()
 
   useEffect(() => {
     fetchShops()
@@ -32,6 +35,10 @@ export default function MapScreen() {
         setUserLocation(DEFAULT_LOCATION)
       }
     })()
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
   }, [])
 
   const loc = userLocation ?? DEFAULT_LOCATION
@@ -50,83 +57,75 @@ export default function MapScreen() {
 
   function handleRadiusChange(value: number) {
     setRadius(value)
-    clearTimeout(debounceRef.current)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       fetchShops()
     }, 400)
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: c.background }]}>
       <MapView
         style={StyleSheet.absoluteFillObject}
         initialRegion={{ ...loc, latitudeDelta: 0.15, longitudeDelta: 0.15 }}
         showsUserLocation
         showsMyLocationButton={false}
       >
-        {nearbyShops.map(shop => (
-          <Marker
-            key={shop.id}
-            coordinate={{ latitude: shop.lat, longitude: shop.lng }}
-            onPress={() => setSelectedShop(shop)}
-          >
-            <View style={[styles.marker, selectedShop?.id === shop.id && styles.markerSelected]}>
-              <Text style={styles.markerText}>🧋</Text>
-            </View>
-          </Marker>
-        ))}
+        {nearbyShops.map(shop => {
+          const isSelected = selectedShop?.id === shop.id
+          return (
+            <Marker
+              key={shop.id}
+              coordinate={{ latitude: shop.lat, longitude: shop.lng }}
+              onPress={() => setSelectedShop(shop)}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+            >
+              <View style={styles.markerWrap}>
+                <Ionicons
+                  name="location"
+                  size={32}
+                  color={isSelected ? c.accent : '#FF3B30'}
+                  style={styles.markerShadow}
+                />
+              </View>
+            </Marker>
+          )
+        })}
       </MapView>
 
-      <View style={[styles.overlay, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.overlay, { paddingTop: insets.top + 12, backgroundColor: c.overlay }]}>
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { backgroundColor: c.surface, borderColor: c.border, color: c.primaryText }]}
           placeholder="Search boba shops..."
-          placeholderTextColor="#555555"
+          placeholderTextColor={c.placeholder}
           value={search}
           onChangeText={setSearch}
         />
 
         <View style={styles.radiusRow}>
-          <View style={styles.radiusPill}>
-            <Text style={styles.radiusText}>{radius} mi</Text>
+          <View style={[styles.radiusPill, { backgroundColor: c.accent }]}>
+            <Text style={[styles.radiusText, { color: c.accentText }]}>{radius} mi</Text>
           </View>
           {loading
-            ? <ActivityIndicator size="small" color="#666666" />
-            : <Text style={styles.shopCount}>{nearbyShops.length} shops found</Text>
+            ? <ActivityIndicator size="small" color={c.secondaryText} />
+            : error
+              ? <Text style={[styles.shopCount, { color: c.error }]} numberOfLines={1}>Couldn't load shops</Text>
+              : <Text style={[styles.shopCount, { color: c.secondaryText }]}>{nearbyShops.length} shops found</Text>
           }
         </View>
 
-        <RadiusSlider value={radius} min={5} max={100} step={5} onChange={handleRadiusChange} />
+        <View style={styles.sliderWrap}>
+          <RadiusSlider value={radius} min={1} max={50} step={1} onChange={handleRadiusChange} />
+        </View>
       </View>
 
       {selectedShop && (
-        <View style={[styles.bottomCard, { paddingBottom: insets.bottom + 12 }]}>
-          <TouchableOpacity style={styles.dismissHint} onPress={() => setSelectedShop(null)}>
-            <View style={styles.handle} />
-          </TouchableOpacity>
-
-          <View style={styles.cardContent}>
-            <View style={styles.cardInfo}>
-              <Text style={styles.cardName}>{selectedShop.name}</Text>
-              <Text style={styles.cardAddress}>{selectedShop.address}</Text>
-              <View style={styles.cardMeta}>
-                <Text style={styles.cardRating}>⭐ {selectedShop.rating.toFixed(1)}</Text>
-                <Text style={styles.cardDot}>·</Text>
-                <Text style={styles.cardDistance}>{selectedShop.distance.toFixed(1)} mi</Text>
-                <Text style={styles.cardDot}>·</Text>
-                <Text style={styles.cardReviews}>{selectedShop.review_count} reviews</Text>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.detailButton}
-              onPress={() => router.push({ pathname: '/shop/[id]', params: { id: selectedShop.id } })}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.detailButtonText}>View</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <ShopDetailSheet
+          shop={selectedShop}
+          bottomInset={insets.bottom}
+          onClose={() => setSelectedShop(null)}
+        />
       )}
     </View>
   )
@@ -158,47 +157,27 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   radiusPill: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111d4a',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 20,
   },
-  radiusText: { fontSize: 13, fontWeight: '700', color: '#000000' },
+  radiusText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
   shopCount: { fontSize: 13, color: '#666666' },
-  marker: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#1A1A1A',
-    borderWidth: 2, borderColor: '#2A2A2A',
-    alignItems: 'center', justifyContent: 'center',
+  sliderWrap: {
+    alignSelf: 'center',
+    width: '80%',
+    paddingVertical: 4,
   },
-  markerSelected: { borderColor: '#FFFFFF', backgroundColor: '#2A2A2A' },
-  markerText: { fontSize: 18 },
-  bottomCard: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    backgroundColor: '#1A1A1A',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 20,
-    paddingTop: 8,
+  markerWrap: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
-  dismissHint: { alignItems: 'center', paddingVertical: 6 },
-  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#3A3A3A' },
-  cardContent: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
-  cardInfo: { flex: 1, gap: 3 },
-  cardName: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
-  cardAddress: { fontSize: 13, color: '#666666' },
-  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cardRating: { fontSize: 13, color: '#AAAAAA' },
-  cardDot: { fontSize: 13, color: '#444444' },
-  cardDistance: { fontSize: 13, color: '#AAAAAA' },
-  cardReviews: { fontSize: 13, color: '#AAAAAA' },
-  detailButton: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 18, paddingVertical: 10,
-    borderRadius: 12,
+  markerShadow: {
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  detailButtonText: { fontSize: 14, fontWeight: '600', color: '#000000' },
 })

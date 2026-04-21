@@ -14,7 +14,16 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mattnguyen.bobud"
+      "bundleIdentifier": "com.mattnguyen.bobud",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.223566175226-g9vval0p4mkmb2qae70hnvnmkjuaolam"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
