@@ -33,7 +33,6 @@ export default function LoginScreen() {
   const [rawNonce] = useState(() => makeRawNonce())
   const [hashedNonce, setHashedNonce] = useState<string | null>(null)
 
-  const continueAsGuest = useAuthStore(s => s.continueAsGuest)
   const c = useColors()
 
   useEffect(() => {
@@ -211,10 +210,6 @@ export default function LoginScreen() {
               onPress={handleApple}
             />
           )}
-
-          <TouchableOpacity onPress={continueAsGuest} activeOpacity={0.6}>
-            <Text style={[styles.guestLabel, { color: c.secondaryText }]}>Continue as guest</Text>
-          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

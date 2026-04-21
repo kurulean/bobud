@@ -8,6 +8,8 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as Location from 'expo-location'
 import * as Haptics from 'expo-haptics'
+import * as FileSystem from 'expo-file-system/legacy'
+import { decode as decodeBase64 } from 'base64-arraybuffer'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../src/lib/supabase'
 import { useMapStore } from '../../src/stores/mapStore'
@@ -96,24 +98,37 @@ export default function CameraScreen() {
   }
 
   async function uploadPhoto(uri: string): Promise<string | null> {
-    const ext = uri.split('.').pop() || 'jpg'
-    const path = `${user?.id ?? 'guest'}/${Date.now()}.${ext}`
+    try {
+      const ext = (uri.split('.').pop() || 'jpg').toLowerCase()
+      const path = `${user?.id ?? 'guest'}/${Date.now()}.${ext}`
 
-    const res = await fetch(uri)
-    const blob = await res.blob()
-    const arrayBuffer = await new Response(blob).arrayBuffer()
+      // Read the file as base64 (works reliably on iOS, unlike fetch + blob)
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      })
+      const arrayBuffer = decodeBase64(base64)
 
-    const { error } = await supabase.storage
-      .from('drink-photos')
-      .upload(path, arrayBuffer, { contentType: `image/${ext}`, upsert: false })
+      const { error: uploadError } = await supabase.storage
+        .from('drink-photos')
+        .upload(path, arrayBuffer, {
+          contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+          upsert: false,
+        })
 
-    if (error) {
-      console.error('upload error', error.message)
+      if (uploadError) {
+        console.error('[Camera] upload error:', uploadError.message)
+        Alert.alert('Upload failed', uploadError.message)
+        return null
+      }
+
+      const { data } = supabase.storage.from('drink-photos').getPublicUrl(path)
+      console.log('[Camera] photo uploaded:', data.publicUrl)
+      return data.publicUrl
+    } catch (e: any) {
+      console.error('[Camera] upload threw:', e?.message)
+      Alert.alert('Upload failed', e?.message ?? 'Unknown error')
       return null
     }
-
-    const { data } = supabase.storage.from('drink-photos').getPublicUrl(path)
-    return data.publicUrl
   }
 
   async function handleSubmit() {
@@ -140,7 +155,7 @@ export default function CameraScreen() {
       })
       if (error) throw error
 
-      Alert.alert('Submitted!', 'Your review is pending approval and will appear once reviewed.')
+      Alert.alert('Posted!', 'Your review has been shared.')
       reset()
     } catch (e: any) {
       Alert.alert('Error', e.message)

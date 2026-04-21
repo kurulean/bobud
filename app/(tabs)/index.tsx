@@ -127,6 +127,7 @@ export default function MapScreen() {
           onClose={() => setSelectedShop(null)}
         />
       )}
+
     </View>
   )
 }

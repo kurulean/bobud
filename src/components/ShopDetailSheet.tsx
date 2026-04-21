@@ -54,6 +54,14 @@ interface Review {
   profiles?: { username: string } | null
 }
 
+interface MenuItem {
+  id: string
+  name: string
+  category: string | null
+  price: number | null
+  calories: number | null
+}
+
 interface Props {
   shop: ShopWithDistance
   bottomInset: number
@@ -70,6 +78,8 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
   const currentUser = useAuthStore(s => s.user)
   const [reviews, setReviews] = useState<Review[]>([])
   const [loadingReviews, setLoadingReviews] = useState(false)
+  const [menu, setMenu] = useState<MenuItem[]>([])
+  const [section, setSection] = useState<'menu' | 'reviews'>('menu')
   const c = useColors()
 
   // Snap helpers
@@ -91,22 +101,43 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
 
     ;(async () => {
       try {
-        const { data, error } = await supabase
-          .from('reviews')
-          .select('id, user_id, rating, text, drink_name, photo_url, created_at')
-          .eq('shop_id', shop.id)
-          .order('created_at', { ascending: false })
+        const [reviewsResult, menuResult] = await Promise.all([
+          supabase
+            .from('reviews')
+            .select('id, user_id, rating, text, drink_name, photo_url, created_at')
+            .eq('shop_id', shop.id)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('menu_items')
+            .select('id, name, category, price, calories')
+            .eq('shop_id', shop.id)
+            .order('category', { ascending: true }),
+        ])
+
         if (cancelled) return
-        if (error) {
-          console.error('[ShopDetailSheet] fetch reviews failed:', error.message)
+
+        if (reviewsResult.error) {
+          console.error('[ShopDetailSheet] fetch reviews failed:', reviewsResult.error.message)
           setReviews([])
         } else {
-          setReviews((data ?? []) as Review[])
+          setReviews((reviewsResult.data ?? []) as Review[])
         }
+
+        if (menuResult.error) {
+          console.error('[ShopDetailSheet] fetch menu failed:', menuResult.error.message)
+          setMenu([])
+        } else {
+          setMenu((menuResult.data ?? []) as MenuItem[])
+        }
+
+        // Default to menu tab if there are items, else reviews
+        if ((menuResult.data?.length ?? 0) === 0) setSection('reviews')
+        else setSection('menu')
       } catch (err: any) {
         if (cancelled) return
-        console.error('[ShopDetailSheet] fetch reviews threw:', err?.message)
+        console.error('[ShopDetailSheet] fetch threw:', err?.message)
         setReviews([])
+        setMenu([])
       } finally {
         if (!cancelled) setLoadingReviews(false)
       }
@@ -176,27 +207,110 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
         </View>
       </View>
 
-      <View style={styles.reviewsSection}>
-        <Text style={[styles.reviewsTitle, { color: c.secondaryText }]}>Reviews</Text>
-        {loadingReviews ? (
-          <Text style={[styles.emptyReviews, { color: c.placeholder }]}>Loading…</Text>
-        ) : reviews.length === 0 ? (
-          <Text style={[styles.emptyReviews, { color: c.placeholder }]}>No reviews yet. Be the first!</Text>
-        ) : (
-          <FlatList
-            data={reviews}
-            keyExtractor={r => r.id}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 12 }}
-            renderItem={({ item }) => (
-              <ReviewRow review={item} c={c} currentUserId={currentUser?.id} />
-            )}
+      <View style={styles.tabsRow}>
+        <TouchableOpacity
+          style={[styles.tab, section === 'menu' && { borderBottomColor: c.accent }]}
+          onPress={() => setSection('menu')}
+          activeOpacity={0.7}
+        >
+          <Text style={[
+            styles.tabLabel,
+            { color: section === 'menu' ? c.primaryText : c.secondaryText },
+          ]}>
+            Menu {menu.length > 0 && <Text style={{ color: c.placeholder }}>· {menu.length}</Text>}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, section === 'reviews' && { borderBottomColor: c.accent }]}
+          onPress={() => setSection('reviews')}
+          activeOpacity={0.7}
+        >
+          <Text style={[
+            styles.tabLabel,
+            { color: section === 'reviews' ? c.primaryText : c.secondaryText },
+          ]}>
+            Reviews {reviews.length > 0 && <Text style={{ color: c.placeholder }}>· {reviews.length}</Text>}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-            ItemSeparatorComponent={() => <View style={[styles.reviewDivider, { backgroundColor: c.border }]} />}
-          />
+      <View style={styles.contentSection}>
+        {loadingReviews ? (
+          <Text style={[styles.emptyState, { color: c.placeholder }]}>Loading…</Text>
+        ) : section === 'menu' ? (
+          menu.length === 0 ? (
+            <Text style={[styles.emptyState, { color: c.placeholder }]}>No menu available yet.</Text>
+          ) : (
+            <FlatList
+              data={groupMenu(menu)}
+              keyExtractor={g => g.category ?? 'uncategorized'}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 12 }}
+              renderItem={({ item }) => <MenuCategory group={item} c={c} />}
+            />
+          )
+        ) : (
+          reviews.length === 0 ? (
+            <Text style={[styles.emptyState, { color: c.placeholder }]}>No reviews yet. Be the first!</Text>
+          ) : (
+            <FlatList
+              data={reviews}
+              keyExtractor={r => r.id}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 12 }}
+              renderItem={({ item }) => (
+                <ReviewRow review={item} c={c} currentUserId={currentUser?.id} />
+              )}
+              ItemSeparatorComponent={() => <View style={[styles.reviewDivider, { backgroundColor: c.border }]} />}
+            />
+          )
         )}
       </View>
     </Animated.View>
+  )
+}
+
+function groupMenu(items: MenuItem[]): { category: string | null; items: MenuItem[] }[] {
+  const map = new Map<string, MenuItem[]>()
+  for (const item of items) {
+    const key = item.category ?? 'Other'
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(item)
+  }
+  return Array.from(map.entries()).map(([category, items]) => ({ category, items }))
+}
+
+function MenuCategory({ group, c }: {
+  group: { category: string | null; items: MenuItem[] }
+  c: ColorPalette
+}) {
+  return (
+    <View style={{ marginBottom: 14 }}>
+      {group.category && (
+        <Text style={[styles.menuCategoryLabel, { color: c.secondaryText }]}>
+          {group.category}
+        </Text>
+      )}
+      {group.items.map(item => (
+        <View key={item.id} style={styles.menuItemRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.menuItemName, { color: c.primaryText }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            {item.calories != null && (
+              <Text style={[styles.menuItemCalories, { color: c.placeholder }]}>
+                {item.calories} cal
+              </Text>
+            )}
+          </View>
+          {item.price != null && (
+            <Text style={[styles.menuItemPrice, { color: c.primaryText }]}>
+              ${Number(item.price).toFixed(2)}
+            </Text>
+          )}
+        </View>
+      ))}
+    </View>
   )
 }
 
@@ -301,24 +415,56 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  reviewsSection: {
+  tabsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  contentSection: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: 12,
   },
-  reviewsTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666666',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 10,
-  },
-  emptyReviews: {
+  emptyState: {
     fontSize: 13,
-    color: '#555555',
     textAlign: 'center',
     paddingVertical: 20,
+  },
+  menuCategoryLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  menuItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 12,
+  },
+  menuItemName: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  menuItemCalories: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  menuItemPrice: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   reviewRow: {

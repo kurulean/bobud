@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Image, ActivityIndicator, Alert, RefreshControl,
+  Image, ActivityIndicator, Alert, RefreshControl, Modal, Pressable,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
@@ -27,6 +27,7 @@ export default function AdminReviewsScreen() {
   const [reviews, setReviews] = useState<PendingReview[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [zoomPhoto, setZoomPhoto] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -92,8 +93,18 @@ export default function AdminReviewsScreen() {
           }
           renderItem={({ item }) => (
             <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-              {item.photo_url && (
-                <Image source={{ uri: item.photo_url }} style={styles.photo} />
+              {item.photo_url ? (
+                <TouchableOpacity onPress={() => setZoomPhoto(item.photo_url)} activeOpacity={0.85}>
+                  <Image source={{ uri: item.photo_url }} style={styles.photo} />
+                  <View style={styles.photoZoomHint}>
+                    <Ionicons name="expand-outline" size={14} color="#FFFFFF" />
+                  </View>
+                </TouchableOpacity>
+              ) : (
+                <View style={[styles.noPhoto, { backgroundColor: c.surfaceAlt }]}>
+                  <Ionicons name="image-outline" size={28} color={c.placeholder} />
+                  <Text style={[styles.noPhotoLabel, { color: c.placeholder }]}>No photo</Text>
+                </View>
               )}
 
               <View style={styles.cardBody}>
@@ -148,6 +159,17 @@ export default function AdminReviewsScreen() {
           )}
         />
       )}
+
+      <Modal visible={!!zoomPhoto} transparent animationType="fade" onRequestClose={() => setZoomPhoto(null)}>
+        <Pressable style={styles.zoomBackdrop} onPress={() => setZoomPhoto(null)}>
+          {zoomPhoto && (
+            <Image source={{ uri: zoomPhoto }} style={styles.zoomImage} resizeMode="contain" />
+          )}
+          <TouchableOpacity style={styles.zoomClose} onPress={() => setZoomPhoto(null)} hitSlop={12}>
+            <Ionicons name="close" size={28} color="#FFFFFF" />
+          </TouchableOpacity>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -175,7 +197,51 @@ const styles = StyleSheet.create({
   },
   photo: {
     width: '100%',
-    aspectRatio: 1.2,
+    aspectRatio: 1,
+  },
+  photoZoomHint: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noPhoto: {
+    width: '100%',
+    aspectRatio: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  noPhotoLabel: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  zoomBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  zoomImage: {
+    width: '100%',
+    height: '100%',
+  },
+  zoomClose: {
+    position: 'absolute',
+    top: 56,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardBody: {
     padding: 14,

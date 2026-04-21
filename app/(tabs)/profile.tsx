@@ -2,18 +2,24 @@ import { useEffect, useState, useRef } from 'react'
 import {
   StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Image,
   ActivityIndicator, Modal, Pressable, Animated, Dimensions, Easing,
-  FlatList,
+  FlatList, TextInput,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { router } from 'expo-router'
 import * as ImagePicker from 'expo-image-picker'
+import * as FileSystem from 'expo-file-system/legacy'
+import { decode as decodeBase64 } from 'base64-arraybuffer'
 import { supabase } from '../../src/lib/supabase'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useColors } from '../../src/hooks/useColors'
 import type { ColorPalette } from '../../src/lib/colors'
 
-const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.80, 340)
+const SCREEN_WIDTH = Dimensions.get('window').width
+const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.80, 340)
+const GRID_GAP = 2
+const GRID_COLS = 3
+const GRID_CELL = (SCREEN_WIDTH - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS
 
 interface UserReview {
   id: string
@@ -32,8 +38,15 @@ interface Stats {
   favoriteShop: string | null
 }
 
+interface Friend {
+  id: string
+  username: string | null
+  avatar_url: string | null
+}
+
 export default function ProfileScreen() {
   const user = useAuthStore(s => s.user)
+  const profile = useAuthStore(s => s.profile)
   const isGuest = useAuthStore(s => s.isGuest)
   const reset = useAuthStore(s => s.reset)
   const setSession = useAuthStore(s => s.setSession)
@@ -45,6 +58,12 @@ export default function ProfileScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMounted, setDrawerMounted] = useState(false)
+  const [selectedReview, setSelectedReview] = useState<UserReview | null>(null)
+  const [friends, setFriends] = useState<Friend[]>([])
+  const [followerCount, setFollowerCount] = useState(0)
+  const [findFriendsOpen, setFindFriendsOpen] = useState(false)
+  const [friendSearch, setFriendSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<Friend[]>([])
 
   const translateX = useRef(new Animated.Value(DRAWER_WIDTH)).current
   const backdropOpacity = useRef(new Animated.Value(0)).current
@@ -84,6 +103,71 @@ export default function ProfileScreen() {
     })()
     return () => { cancelled = true }
   }, [user?.id])
+
+  // Fetch friends (people I follow) + follower count
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    ;(async () => {
+      const { data: follows } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', user.id)
+      const ids = (follows ?? []).map((f: any) => f.following_id)
+      if (ids.length > 0) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .in('id', ids)
+        if (!cancelled) setFriends((profs ?? []) as Friend[])
+      } else if (!cancelled) {
+        setFriends([])
+      }
+
+      const { count } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', user.id)
+      if (!cancelled) setFollowerCount(count ?? 0)
+    })()
+    return () => { cancelled = true }
+  }, [user?.id])
+
+  async function searchFriends(q: string) {
+    setFriendSearch(q)
+    if (q.trim().length < 2 || !user) {
+      setSearchResults([])
+      return
+    }
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, username, avatar_url')
+      .ilike('username', `%${q}%`)
+      .neq('id', user.id)
+      .limit(20)
+    setSearchResults((data ?? []) as Friend[])
+  }
+
+  async function toggleFollow(targetId: string) {
+    if (!user) return
+    const alreadyFollowing = friends.some(f => f.id === targetId)
+    if (alreadyFollowing) {
+      const { error } = await supabase
+        .from('follows')
+        .delete()
+        .eq('follower_id', user.id)
+        .eq('following_id', targetId)
+      if (error) return Alert.alert('Error', error.message)
+      setFriends(f => f.filter(x => x.id !== targetId))
+    } else {
+      const { error } = await supabase
+        .from('follows')
+        .insert({ follower_id: user.id, following_id: targetId })
+      if (error) return Alert.alert('Error', error.message)
+      const target = searchResults.find(r => r.id === targetId)
+      if (target) setFriends(f => [...f, target])
+    }
+  }
 
   // Drawer animation
   useEffect(() => {
@@ -129,13 +213,17 @@ export default function ProfileScreen() {
       const ext = uri.split('.').pop()?.toLowerCase() || 'jpg'
       const path = `${user.id}/avatar_${Date.now()}.${ext}`
 
-      const res = await fetch(uri)
-      const blob = await res.blob()
-      const arrayBuffer = await new Response(blob).arrayBuffer()
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      })
+      const arrayBuffer = decodeBase64(base64)
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(path, arrayBuffer, { contentType: `image/${ext}`, upsert: true })
+        .upload(path, arrayBuffer, {
+          contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+          upsert: true,
+        })
       if (uploadError) throw uploadError
 
       const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(path)
@@ -153,6 +241,42 @@ export default function ProfileScreen() {
     } finally {
       setUploadingAvatar(false)
     }
+  }
+
+  function handleDeleteReview(review: UserReview) {
+    Alert.alert(
+      'Delete review',
+      'This will remove it from your profile and the shop. This can\'t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase
+              .from('reviews')
+              .delete()
+              .eq('id', review.id)
+            if (error) {
+              Alert.alert('Error', error.message)
+              return
+            }
+            setReviews(r => r.filter(x => x.id !== review.id))
+            setStats(s => {
+              const newCount = Math.max(0, s.reviewCount - 1)
+              return {
+                reviewCount: newCount,
+                avgRating: newCount === 0
+                  ? 0
+                  : ((s.avgRating * s.reviewCount) - review.rating) / newCount,
+                favoriteShop: s.favoriteShop,
+              }
+            })
+            setSelectedReview(null)
+          },
+        },
+      ]
+    )
   }
 
   function handleSignOut() {
@@ -199,10 +323,12 @@ export default function ProfileScreen() {
       <FlatList
         data={reviews}
         keyExtractor={item => item.id}
+        numColumns={GRID_COLS}
         contentContainerStyle={styles.scroll}
+        columnWrapperStyle={reviews.length > 0 ? styles.gridRow : undefined}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
-          <>
+          <View style={styles.headerWrap}>
             <View style={styles.identityCard}>
               <TouchableOpacity
                 onPress={handleChangeAvatar}
@@ -215,7 +341,9 @@ export default function ProfileScreen() {
                     <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
                   ) : (
                     <Text style={[styles.avatarText, { color: c.accentText }]}>
-                      {isGuest ? '?' : (user?.email?.[0].toUpperCase() ?? '?')}
+                      {isGuest
+                        ? '?'
+                        : (profile?.username?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?')}
                     </Text>
                   )}
                   {uploadingAvatar && (
@@ -231,26 +359,79 @@ export default function ProfileScreen() {
                 )}
               </TouchableOpacity>
               <Text style={[styles.name, { color: c.primaryText }]}>
-                {isGuest ? 'Guest' : user?.email}
+                {isGuest
+                  ? 'Guest'
+                  : profile?.username
+                    ? `@${profile.username}`
+                    : user?.email}
               </Text>
               <Text style={[styles.subtitle, { color: c.secondaryText }]}>
-                {isGuest ? 'Sign in to save your ratings'
-                  : memberSince ? `Member since ${memberSince}` : 'Member'}
+                {isGuest
+                  ? 'Sign in to save your ratings'
+                  : profile?.username && user?.email
+                    ? user.email
+                    : memberSince
+                      ? `Member since ${memberSince}`
+                      : 'Member'}
               </Text>
             </View>
 
             {!isGuest && (
               <View style={styles.statsRow}>
                 <StatBox c={c} value={String(stats.reviewCount)} label="Reviews" />
-                <StatBox c={c} value={stats.avgRating ? stats.avgRating.toFixed(1) : '—'} label="Avg rating" />
-                <StatBox c={c} value={stats.favoriteShop ?? '—'} label="Top shop" />
+                <StatBox c={c} value={String(friends.length)} label="Following" />
+                <StatBox c={c} value={String(followerCount)} label="Followers" />
+              </View>
+            )}
+
+            {!isGuest && (
+              <View style={styles.friendsBlock}>
+                <View style={styles.friendsHeader}>
+                  <Text style={[styles.sectionLabel, { color: c.placeholder }]}>Friends</Text>
+                  <TouchableOpacity onPress={() => setFindFriendsOpen(true)} activeOpacity={0.6}>
+                    <Text style={[styles.findFriendsLink, { color: c.accent }]}>
+                      + Find friends
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {friends.length === 0 ? (
+                  <Text style={[styles.emptyFriends, { color: c.placeholder }]}>
+                    You're not following anyone yet.
+                  </Text>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.friendsRow}
+                  >
+                    {friends.map(f => (
+                      <View key={f.id} style={styles.friendItem}>
+                        <View style={[styles.friendAvatar, { backgroundColor: c.accent }]}>
+                          {f.avatar_url ? (
+                            <Image source={{ uri: f.avatar_url }} style={styles.friendAvatarImage} />
+                          ) : (
+                            <Text style={[styles.friendAvatarText, { color: c.accentText }]}>
+                              {(f.username ?? '?')[0].toUpperCase()}
+                            </Text>
+                          )}
+                        </View>
+                        <Text
+                          style={[styles.friendName, { color: c.primaryText }]}
+                          numberOfLines={1}
+                        >
+                          @{f.username}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
               </View>
             )}
 
             {!isGuest && reviews.length > 0 && (
               <Text style={[styles.sectionLabel, { color: c.placeholder }]}>Your reviews</Text>
             )}
-          </>
+          </View>
         }
         ListEmptyComponent={
           !isGuest ? (
@@ -264,7 +445,7 @@ export default function ProfileScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <ReviewCard review={item} c={c} />
+          <GridCell review={item} c={c} onPress={() => setSelectedReview(item)} />
         )}
       />
 
@@ -349,61 +530,184 @@ export default function ProfileScreen() {
           </ScrollView>
         </Animated.View>
       </Modal>
+
+      {selectedReview && (
+        <ReviewDetailModal
+          review={selectedReview}
+          onClose={() => setSelectedReview(null)}
+          onDelete={() => handleDeleteReview(selectedReview)}
+          c={c}
+        />
+      )}
+
+      <Modal
+        visible={findFriendsOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setFindFriendsOpen(false)}
+      >
+        <SafeAreaView style={[{ flex: 1, backgroundColor: c.background }]}>
+          <View style={[styles.ffHeader, { borderBottomColor: c.borderSubtle }]}>
+            <Text style={[styles.ffTitle, { color: c.primaryText }]}>Find friends</Text>
+            <TouchableOpacity
+              onPress={() => { setFindFriendsOpen(false); setFriendSearch(''); setSearchResults([]) }}
+            >
+              <Ionicons name="close" size={24} color={c.primaryText} />
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.ffSearchWrap, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <Ionicons name="search" size={16} color={c.placeholder} />
+            <TextInput
+              style={[styles.ffSearchInput, { color: c.primaryText }]}
+              placeholder="Search by username..."
+              placeholderTextColor={c.placeholder}
+              value={friendSearch}
+              onChangeText={searchFriends}
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <FlatList
+            data={searchResults}
+            keyExtractor={item => item.id}
+            contentContainerStyle={{ padding: 16, gap: 8 }}
+            ListEmptyComponent={
+              <Text style={[styles.ffEmpty, { color: c.placeholder }]}>
+                {friendSearch.trim().length < 2
+                  ? 'Type at least 2 characters'
+                  : 'No users found'}
+              </Text>
+            }
+            renderItem={({ item }) => {
+              const isFollowing = friends.some(f => f.id === item.id)
+              return (
+                <View style={[styles.ffRow, { backgroundColor: c.surface, borderColor: c.border }]}>
+                  <View style={[styles.friendAvatar, { backgroundColor: c.accent, width: 40, height: 40, borderRadius: 20 }]}>
+                    {item.avatar_url ? (
+                      <Image source={{ uri: item.avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                    ) : (
+                      <Text style={[styles.friendAvatarText, { color: c.accentText }]}>
+                        {(item.username ?? '?')[0].toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={[styles.ffRowName, { color: c.primaryText }]} numberOfLines={1}>
+                    @{item.username}
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.ffFollowBtn,
+                      isFollowing
+                        ? { backgroundColor: c.surfaceAlt, borderColor: c.border }
+                        : { backgroundColor: c.accent, borderColor: c.accent },
+                    ]}
+                    onPress={() => toggleFollow(item.id)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[
+                      styles.ffFollowLabel,
+                      { color: isFollowing ? c.secondaryText : c.accentText },
+                    ]}>
+                      {isFollowing ? 'Following' : 'Follow'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )
+            }}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   )
 }
 
-function ReviewCard({ review, c }: { review: UserReview; c: ColorPalette }) {
-  const isPending = review.status === 'pending'
-  const isRejected = review.status === 'rejected'
+function GridCell({ review, c, onPress }: {
+  review: UserReview
+  c: ColorPalette
+  onPress: () => void
+}) {
   return (
-    <View style={[styles.reviewCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-      {review.photo_url && (
-        <Image source={{ uri: review.photo_url }} style={[styles.reviewPhoto, { backgroundColor: c.surfaceAlt }]} />
+    <TouchableOpacity
+      style={[styles.gridCell, { backgroundColor: c.surface }]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      {review.photo_url ? (
+        <Image source={{ uri: review.photo_url }} style={styles.gridImage} />
+      ) : (
+        <View style={[styles.gridFallback, { backgroundColor: c.surface }]}>
+          <Ionicons name="star" size={20} color={c.star} />
+          <Text style={[styles.gridFallbackText, { color: c.primaryText }]}>
+            {review.rating}
+          </Text>
+        </View>
       )}
-      <View style={styles.reviewBody}>
-        <View style={styles.reviewTopRow}>
-          <Text style={[styles.reviewShop, { color: c.primaryText }]} numberOfLines={1}>
-            {review.shops?.name ?? 'Unknown shop'}
-          </Text>
-          {(isPending || isRejected) && (
-            <View style={[
-              styles.statusBadge,
-              { backgroundColor: isPending ? c.surfaceAlt : c.error },
-            ]}>
-              <Text style={[styles.statusLabel, {
-                color: isPending ? c.secondaryText : '#FFFFFF',
-              }]}>
-                {isPending ? 'Pending' : 'Rejected'}
-              </Text>
-            </View>
-          )}
-        </View>
-        <View style={styles.reviewStars}>
-          {[1, 2, 3, 4, 5].map(n => (
-            <Ionicons
-              key={n}
-              name={n <= review.rating ? 'star' : 'star-outline'}
-              size={13}
-              color={n <= review.rating ? c.star : c.border}
-            />
-          ))}
-          {review.drink_name && (
-            <Text style={[styles.reviewDrink, { color: c.tertiaryText }]}>
-              · {review.drink_name}
-            </Text>
-          )}
-        </View>
-        {review.text && (
-          <Text style={[styles.reviewText, { color: c.primaryText }]} numberOfLines={3}>
-            {review.text}
-          </Text>
-        )}
-        <Text style={[styles.reviewDate, { color: c.placeholder }]}>
-          {new Date(review.created_at).toLocaleDateString()}
-        </Text>
+      <View style={styles.gridBottomOverlay}>
+        <Ionicons name="star" size={10} color="#FFFFFF" />
+        <Text style={styles.gridBottomText}>{review.rating}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
+  )
+}
+
+function ReviewDetailModal({ review, onClose, onDelete, c }: {
+  review: UserReview
+  onClose: () => void
+  onDelete: () => void
+  c: ColorPalette
+}) {
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.detailBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={[styles.detailCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <TouchableOpacity style={styles.detailClose} onPress={onClose} hitSlop={8}>
+            <Ionicons name="close" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+          {review.photo_url && (
+            <Image source={{ uri: review.photo_url }} style={styles.detailPhoto} />
+          )}
+          <View style={styles.detailBody}>
+            <Text style={[styles.detailShop, { color: c.primaryText }]} numberOfLines={1}>
+              {review.shops?.name ?? 'Unknown shop'}
+            </Text>
+            <View style={styles.reviewStars}>
+              {[1, 2, 3, 4, 5].map(n => (
+                <Ionicons
+                  key={n}
+                  name={n <= review.rating ? 'star' : 'star-outline'}
+                  size={16}
+                  color={n <= review.rating ? c.star : c.border}
+                />
+              ))}
+              {review.drink_name && (
+                <Text style={[styles.reviewDrink, { color: c.tertiaryText }]}>
+                  · {review.drink_name}
+                </Text>
+              )}
+            </View>
+            {review.text && (
+              <Text style={[styles.reviewText, { color: c.primaryText }]}>
+                {review.text}
+              </Text>
+            )}
+            <Text style={[styles.reviewDate, { color: c.placeholder }]}>
+              {new Date(review.created_at).toLocaleDateString()}
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.deleteButton, { borderColor: c.error }]}
+              onPress={onDelete}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="trash-outline" size={16} color={c.error} />
+              <Text style={[styles.deleteLabel, { color: c.error }]}>Delete review</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   )
 }
 
@@ -464,7 +768,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scroll: { paddingBottom: 40, gap: 16, paddingHorizontal: 20, paddingTop: 20 },
+  scroll: { paddingBottom: 40 },
+  headerWrap: { padding: 20, gap: 16 },
 
   identityCard: {
     alignItems: 'center',
@@ -507,6 +812,68 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 13 },
 
   statsRow: { flexDirection: 'row', gap: 10 },
+  friendsBlock: { gap: 8 },
+  friendsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  findFriendsLink: { fontSize: 13, fontWeight: '600' },
+  emptyFriends: { fontSize: 13, paddingHorizontal: 4 },
+  friendsRow: { gap: 14, paddingVertical: 4 },
+  friendItem: { alignItems: 'center', width: 64 },
+  friendAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  friendAvatarImage: { width: 56, height: 56, borderRadius: 28 },
+  friendAvatarText: { fontSize: 20, fontWeight: '700' },
+  friendName: { fontSize: 11, textAlign: 'center', maxWidth: 64 },
+
+  ffHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  ffTitle: { fontSize: 18, fontWeight: '700' },
+  ffSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    gap: 8,
+  },
+  ffSearchInput: { flex: 1, fontSize: 14, padding: 0 },
+  ffEmpty: { textAlign: 'center', padding: 40, fontSize: 13 },
+  ffRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+  },
+  ffRowName: { flex: 1, fontSize: 15, fontWeight: '500' },
+  ffFollowBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  ffFollowLabel: { fontSize: 13, fontWeight: '600' },
   statBox: {
     flex: 1,
     borderRadius: 14,
@@ -537,36 +904,116 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 15, fontWeight: '500' },
   emptySub: { fontSize: 12, textAlign: 'center' },
 
-  reviewCard: {
-    flexDirection: 'row',
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 12,
-    gap: 12,
+  gridRow: { gap: GRID_GAP },
+  gridCell: {
+    width: GRID_CELL,
+    height: GRID_CELL,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  reviewPhoto: { width: 72, height: 72, borderRadius: 10 },
-  reviewBody: { flex: 1, gap: 4 },
-  reviewTopRow: {
+  gridImage: { width: '100%', height: '100%' },
+  gridFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  gridFallbackText: { fontSize: 18, fontWeight: '700' },
+  gridStatusBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  gridStatusLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  gridBottomOverlay: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    gap: 2,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
-  reviewShop: { fontSize: 14, fontWeight: '600', flex: 1 },
+  gridBottomText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
+
+  reviewStars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 4,
+  },
+  reviewDrink: { fontSize: 12, marginLeft: 4 },
+  reviewText: { fontSize: 13, lineHeight: 18, marginTop: 6 },
+  reviewDate: { fontSize: 11, marginTop: 6 },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
   },
   statusLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  reviewStars: {
+
+  detailBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  detailCard: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  detailClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailPhoto: {
+    width: '100%',
+    aspectRatio: 1,
+  },
+  detailBody: { padding: 16, gap: 4 },
+  detailTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    justifyContent: 'space-between',
+    gap: 8,
   },
-  reviewDrink: { fontSize: 12, marginLeft: 4 },
-  reviewText: { fontSize: 13, lineHeight: 18 },
-  reviewDate: { fontSize: 11, marginTop: 2 },
+  detailShop: { fontSize: 16, fontWeight: '600', flex: 1 },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 11,
+    marginTop: 14,
+    gap: 6,
+  },
+  deleteLabel: { fontSize: 14, fontWeight: '600' },
 
   backdrop: {
     ...StyleSheet.absoluteFillObject,

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   StyleSheet, Text, View, FlatList, TouchableOpacity,
-  Modal, Pressable, Animated, Dimensions, Easing,
+  Modal, Pressable, Animated, Dimensions, Easing, TextInput,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
@@ -28,6 +28,8 @@ export default function LeaderboardScreen() {
   const { radius, userLocation, shops, setSelectedShop } = useMapStore()
   const [activeTag, setActiveTag] = useState<DrinkTag | 'All'>('All')
   const [filterOpen, setFilterOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const loc = userLocation ?? DEFAULT_LOCATION
   const c = useColors()
   const insets = useSafeAreaInsets()
@@ -76,6 +78,7 @@ export default function LeaderboardScreen() {
   }
 
   const rankedShops = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
     return shops
       .map(shop => ({
         ...shop,
@@ -83,27 +86,64 @@ export default function LeaderboardScreen() {
       }))
       .filter(shop => shop.distance <= radius)
       .filter(shop => activeTag === 'All' || shop.tags?.includes(activeTag))
+      .filter(shop =>
+        !q
+          || shop.name.toLowerCase().includes(q)
+          || shop.address?.toLowerCase().includes(q)
+      )
       .sort((a, b) => b.rating - a.rating)
       .slice(0, TOP_N)
-  }, [shops, loc, radius, activeTag])
+  }, [shops, loc, radius, activeTag, searchQuery])
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: c.borderSubtle }]}>
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={() => setFilterOpen(true)}
-          activeOpacity={0.6}
-        >
-          <Ionicons name="menu" size={24} color={c.primaryText} />
-        </TouchableOpacity>
+        {searchOpen ? (
+          <View style={[styles.searchWrap, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <Ionicons name="search" size={16} color={c.placeholder} />
+            <TextInput
+              style={[styles.searchInput, { color: c.primaryText }]}
+              placeholder="Search shops..."
+              placeholderTextColor={c.placeholder}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            <TouchableOpacity
+              onPress={() => { setSearchOpen(false); setSearchQuery('') }}
+              hitSlop={8}
+            >
+              <Ionicons name="close-circle" size={18} color={c.placeholder} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => setFilterOpen(true)}
+              activeOpacity={0.6}
+            >
+              <Ionicons name="menu" size={24} color={c.primaryText} />
+            </TouchableOpacity>
 
-        <View style={styles.headerText}>
-          <Text style={[styles.title, { color: c.primaryText }]}>Boba Leaderboard</Text>
-          <Text style={[styles.subtitle, { color: c.secondaryText }]}>
-            Within {radius} mi · {activeTag === 'All' ? 'All drinks' : activeTag}
-          </Text>
-        </View>
+            <View style={styles.headerText}>
+              <Text style={[styles.title, { color: c.primaryText }]}>Boba Leaderboard</Text>
+              <Text style={[styles.subtitle, { color: c.secondaryText }]}>
+                Within {radius} mi · {activeTag === 'All' ? 'All drinks' : activeTag}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => setSearchOpen(true)}
+              activeOpacity={0.6}
+            >
+              <Ionicons name="search" size={22} color={c.primaryText} />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       <FlatList
@@ -246,6 +286,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerText: { flex: 1 },
+  searchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+    height: 40,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
   title: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
   subtitle: { fontSize: 13, color: '#666666', marginTop: 2 },
   list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },

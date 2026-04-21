@@ -8,9 +8,12 @@ import { useAuthStore } from '../src/stores/authStore'
 import { useThemeStore } from '../src/stores/themeStore'
 
 export default function RootLayout() {
-  const isAuth = useAuthStore(s => !!s.session || s.isGuest)
+  const session = useAuthStore(s => s.session)
+  const profile = useAuthStore(s => s.profile)
+  const isGuest = useAuthStore(s => s.isGuest)
   const initialized = useAuthStore(s => s.initialized)
   const setSession = useAuthStore(s => s.setSession)
+  const setProfile = useAuthStore(s => s.setProfile)
   const initTheme = useThemeStore(s => s.init)
   const themeInitialized = useThemeStore(s => s.initialized)
 
@@ -34,12 +37,49 @@ export default function RootLayout() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Whenever session changes, fetch the user's profile row
+  useEffect(() => {
+    if (!session?.user) {
+      setProfile(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url, created_at')
+        .eq('id', session.user.id)
+        .maybeSingle()
+      if (cancelled) return
+      if (error) {
+        console.error('[RootLayout] profile fetch failed:', error.message)
+        setProfile(null)
+      } else {
+        setProfile(data as any)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [session?.user?.id])
+
+  // Route based on auth + onboarding state
   useEffect(() => {
     if (!initialized) return
-    router.replace(isAuth ? '/(tabs)' : '/(auth)/login')
-  }, [initialized, isAuth])
+    if (isGuest) {
+      router.replace('/(tabs)')
+    } else if (session) {
+      // Signed in: need a username before entering the app
+      if (profile && !profile.username) {
+        router.replace('/onboarding')
+      } else if (profile?.username) {
+        router.replace('/(tabs)')
+      }
+      // else: waiting on profile fetch — don't navigate yet
+    } else {
+      router.replace('/(auth)/login')
+    }
+  }, [initialized, isGuest, session, profile])
 
-  // Fade splash out once both auth + theme are ready
+  // Fade splash out once auth + theme are ready
   useEffect(() => {
     if (!initialized || !themeInitialized) return
     const timer = setTimeout(() => {
