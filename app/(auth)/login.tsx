@@ -10,7 +10,6 @@ import * as WebBrowser from 'expo-web-browser'
 import * as Crypto from 'expo-crypto'
 import * as Google from 'expo-auth-session/providers/google'
 import { supabase } from '../../src/lib/supabase'
-import { useAuthStore } from '../../src/stores/authStore'
 import { useColors } from '../../src/hooks/useColors'
 
 WebBrowser.maybeCompleteAuthSession()
@@ -273,10 +272,4 @@ const styles = StyleSheet.create({
   },
   oauthLabel: { fontSize: 15, fontWeight: '600' },
   appleButton: { height: 52, width: '100%' },
-  guestLabel: {
-    fontSize: 15,
-    color: '#555555',
-    textAlign: 'center',
-    paddingVertical: 4,
-  },
 })

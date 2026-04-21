@@ -94,7 +94,12 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: '#0D0D0D' },
+        }}
+      />
       {showSplash && (
         <Animated.View
           style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}

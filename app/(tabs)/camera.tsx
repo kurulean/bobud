@@ -1,11 +1,11 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, Image,
   Alert, ActivityIndicator, TextInput, ScrollView, FlatList,
   KeyboardAvoidingView, Platform, Modal,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { CameraView, useCameraPermissions } from 'expo-camera'
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera'
 import * as Location from 'expo-location'
 import * as Haptics from 'expo-haptics'
 import * as FileSystem from 'expo-file-system/legacy'
@@ -15,7 +15,9 @@ import { supabase } from '../../src/lib/supabase'
 import { useMapStore } from '../../src/stores/mapStore'
 import { useAuthStore } from '../../src/stores/authStore'
 import { haversineDistance } from '../../src/lib/geo'
-import { Shop } from '../../src/types'
+import { Shop, DrinkTag } from '../../src/types'
+
+const DRINK_TYPES: DrinkTag[] = ['Milk Tea', 'Fruit Tea', 'Matcha', 'Slush', 'Classic']
 import { useColors } from '../../src/hooks/useColors'
 
 const AUTO_DETECT_RADIUS_MILES = 0.1 // ~500 feet
@@ -30,11 +32,14 @@ export default function CameraScreen() {
   const [rating, setRating] = useState(0)
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null)
   const [drinkName, setDrinkName] = useState('')
+  const [drinkType, setDrinkType] = useState<DrinkTag | null>(null)
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [shopPickerOpen, setShopPickerOpen] = useState(false)
   const [shopSearch, setShopSearch] = useState('')
   const [autoDetected, setAutoDetected] = useState(false)
+  const [facing, setFacing] = useState<CameraType>('back')
+  const [shopMenu, setShopMenu] = useState<string[]>([])
 
   const shops = useMapStore(s => s.shops)
   const user = useAuthStore(s => s.user)
@@ -46,6 +51,26 @@ export default function CameraScreen() {
     const q = shopSearch.toLowerCase()
     return shops.filter(s => s.name.toLowerCase().includes(q))
   }, [shops, shopSearch])
+
+  useEffect(() => {
+    if (!selectedShop?.id) { setShopMenu([]); return }
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('menu_items')
+        .select('name')
+        .eq('shop_id', selectedShop.id)
+      if (!cancelled) setShopMenu((data ?? []).map((d: any) => d.name))
+    })()
+    return () => { cancelled = true }
+  }, [selectedShop?.id])
+
+  const drinkSuggestions = useMemo(() => {
+    const q = drinkName.trim().toLowerCase()
+    if (!q || shopMenu.length === 0) return []
+    if (shopMenu.some(n => n.toLowerCase() === q)) return []
+    return shopMenu.filter(n => n.toLowerCase().includes(q)).slice(0, 5)
+  }, [drinkName, shopMenu])
 
   async function detectNearestShop() {
     try {
@@ -93,6 +118,7 @@ export default function CameraScreen() {
     setRating(0)
     setSelectedShop(null)
     setDrinkName('')
+    setDrinkType(null)
     setNotes('')
     setAutoDetected(false)
   }
@@ -151,6 +177,7 @@ export default function CameraScreen() {
         rating,
         text: notes || null,
         drink_name: drinkName || null,
+        drink_type: drinkType,
         photo_url,
       })
       if (error) throw error
@@ -182,7 +209,7 @@ export default function CameraScreen() {
   if (stage === 'capture') {
     return (
       <View style={styles.black}>
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing="back" />
+        <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing={facing} />
         <SafeAreaView style={styles.cameraOverlay}>
           <View style={styles.cameraTop}>
             <Text style={styles.cameraHint}>Snap your drink</Text>
@@ -190,6 +217,17 @@ export default function CameraScreen() {
           <View style={styles.cameraBottom}>
             <TouchableOpacity style={styles.shutter} onPress={takePicture} activeOpacity={0.7}>
               <View style={styles.shutterInner} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.flipButton}
+              onPress={() => {
+                Haptics.selectionAsync()
+                setFacing(f => (f === 'back' ? 'front' : 'back'))
+              }}
+              activeOpacity={0.7}
+              hitSlop={8}
+            >
+              <Ionicons name="sync-outline" size={26} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -282,11 +320,61 @@ export default function CameraScreen() {
               <Text style={[styles.cardLabel, { color: c.secondaryText }]}>Drink</Text>
               <TextInput
                 style={[styles.cardInput, { color: c.primaryText }]}
-                placeholder="e.g. Taro Milk Tea"
+                placeholder={shopMenu.length > 0 ? 'Search the menu...' : 'e.g. Taro Milk Tea'}
                 placeholderTextColor={c.placeholder}
                 value={drinkName}
                 onChangeText={setDrinkName}
               />
+            </View>
+
+            {drinkSuggestions.length > 0 && (
+              <View style={[styles.suggestionsWrap, { borderTopColor: c.border }]}>
+                {drinkSuggestions.map(name => (
+                  <TouchableOpacity
+                    key={name}
+                    style={styles.suggestionRow}
+                    onPress={() => setDrinkName(name)}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="search-outline" size={14} color={c.placeholder} />
+                    <Text style={[styles.suggestionLabel, { color: c.primaryText }]} numberOfLines={1}>
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            <View style={[styles.cardDivider, { backgroundColor: c.border }]} />
+
+            <View style={[styles.cardRow, { flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
+              <Text style={[styles.cardLabel, { color: c.secondaryText, width: undefined }]}>Type</Text>
+              <View style={styles.typeRow}>
+                {DRINK_TYPES.map(t => {
+                  const active = drinkType === t
+                  return (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => setDrinkType(active ? null : t)}
+                      activeOpacity={0.75}
+                      style={[
+                        styles.typePill,
+                        {
+                          backgroundColor: active ? c.accent : 'transparent',
+                          borderColor: active ? c.accent : c.border,
+                        },
+                      ]}
+                    >
+                      <Text style={[
+                        styles.typePillLabel,
+                        { color: active ? c.accentText : c.secondaryText },
+                      ]}>
+                        {t}
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
             </View>
           </View>
 
@@ -391,8 +479,10 @@ const styles = StyleSheet.create({
   },
   cameraBottom: {
     alignItems: 'center',
+    justifyContent: 'center',
     paddingTop: 32,
     paddingBottom: 16,
+    position: 'relative',
   },
   shutter: {
     width: 76,
@@ -409,6 +499,17 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     backgroundColor: '#FFFFFF',
+  },
+  flipButton: {
+    position: 'absolute',
+    right: 28,
+    bottom: 30,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   rateContainer: { flex: 1, backgroundColor: '#0D0D0D' },
@@ -501,6 +602,28 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   autoBadgeText: { fontSize: 10, fontWeight: '700', color: '#000000' },
+  suggestionsWrap: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    gap: 2,
+    paddingTop: 6,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  suggestionLabel: { fontSize: 14, flex: 1 },
+  typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  typePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  typePillLabel: { fontSize: 13, fontWeight: '600' },
   notesInput: {
     backgroundColor: '#1A1A1A',
     borderWidth: 1,

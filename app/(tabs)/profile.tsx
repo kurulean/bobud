@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, Image,
   ActivityIndicator, Modal, Pressable, Animated, Dimensions, Easing,
-  FlatList, TextInput,
+  FlatList, TextInput, RefreshControl,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
@@ -64,6 +64,8 @@ export default function ProfileScreen() {
   const [findFriendsOpen, setFindFriendsOpen] = useState(false)
   const [friendSearch, setFriendSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Friend[]>([])
+  const [refreshing, setRefreshing] = useState(false)
+  const [bobaScore, setBobaScore] = useState<number>(0)
 
   const translateX = useRef(new Animated.Value(DRAWER_WIDTH)).current
   const backdropOpacity = useRef(new Animated.Value(0)).current
@@ -71,67 +73,81 @@ export default function ProfileScreen() {
   const avatarUrl = (user?.user_metadata as any)?.avatar_url as string | undefined
   const isAdmin = (user?.app_metadata as any)?.is_admin === true
 
-  useEffect(() => {
+  const loadReviews = useCallback(async () => {
     if (!user?.id) return
-    let cancelled = false
-    ;(async () => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .select('id, rating, text, drink_name, photo_url, status, created_at, shops(name)')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-      if (cancelled) return
-      if (error) {
-        console.error('[Profile] reviews fetch failed:', error.message)
-        return
-      }
-      const items = (data ?? []) as unknown as UserReview[]
-      setReviews(items)
+    const { data, error } = await supabase
+      .from('reviews')
+      .select('id, rating, text, drink_name, photo_url, status, created_at, shops(name)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+    if (error) {
+      console.error('[Profile] reviews fetch failed:', error.message)
+      return
+    }
+    const items = (data ?? []) as unknown as UserReview[]
+    setReviews(items)
 
-      const reviewCount = items.length
-      const avgRating = reviewCount
-        ? items.reduce((s, r) => s + (r.rating ?? 0), 0) / reviewCount
-        : 0
-      const shopCounts: Record<string, number> = {}
-      items.forEach(r => {
-        const name = r.shops?.name
-        if (name) shopCounts[name] = (shopCounts[name] ?? 0) + 1
-      })
-      const favoriteShop = Object.entries(shopCounts)
-        .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-      setStats({ reviewCount, avgRating, favoriteShop })
-    })()
-    return () => { cancelled = true }
+    const reviewCount = items.length
+    const avgRating = reviewCount
+      ? items.reduce((s, r) => s + (r.rating ?? 0), 0) / reviewCount
+      : 0
+    const shopCounts: Record<string, number> = {}
+    items.forEach(r => {
+      const name = r.shops?.name
+      if (name) shopCounts[name] = (shopCounts[name] ?? 0) + 1
+    })
+    const favoriteShop = Object.entries(shopCounts)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+    setStats({ reviewCount, avgRating, favoriteShop })
   }, [user?.id])
 
-  // Fetch friends (people I follow) + follower count
-  useEffect(() => {
+  const loadBobaScore = useCallback(async () => {
     if (!user?.id) return
-    let cancelled = false
-    ;(async () => {
-      const { data: follows } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', user.id)
-      const ids = (follows ?? []).map((f: any) => f.following_id)
-      if (ids.length > 0) {
-        const { data: profs } = await supabase
-          .from('profiles')
-          .select('id, username, avatar_url')
-          .in('id', ids)
-        if (!cancelled) setFriends((profs ?? []) as Friend[])
-      } else if (!cancelled) {
-        setFriends([])
-      }
-
-      const { count } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('following_id', user.id)
-      if (!cancelled) setFollowerCount(count ?? 0)
-    })()
-    return () => { cancelled = true }
+    const { data, error } = await supabase
+      .from('user_boba_scores')
+      .select('score')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (error) {
+      console.error('[Profile] boba score fetch failed:', error.message)
+      return
+    }
+    setBobaScore((data?.score as number) ?? 0)
   }, [user?.id])
+
+  const loadFriends = useCallback(async () => {
+    if (!user?.id) return
+    const { data: follows } = await supabase
+      .from('follows')
+      .select('following_id')
+      .eq('follower_id', user.id)
+    const ids = (follows ?? []).map((f: any) => f.following_id)
+    if (ids.length > 0) {
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url')
+        .in('id', ids)
+      setFriends((profs ?? []) as Friend[])
+    } else {
+      setFriends([])
+    }
+
+    const { count } = await supabase
+      .from('follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('following_id', user.id)
+    setFollowerCount(count ?? 0)
+  }, [user?.id])
+
+  useEffect(() => { loadReviews() }, [loadReviews])
+  useEffect(() => { loadFriends() }, [loadFriends])
+  useEffect(() => { loadBobaScore() }, [loadBobaScore])
+
+  async function onRefresh() {
+    setRefreshing(true)
+    await Promise.all([loadReviews(), loadFriends(), loadBobaScore()])
+    setRefreshing(false)
+  }
 
   async function searchFriends(q: string) {
     setFriendSearch(q)
@@ -200,7 +216,7 @@ export default function ProfileScreen() {
       return
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -219,14 +235,14 @@ export default function ProfileScreen() {
       const arrayBuffer = decodeBase64(base64)
 
       const { error: uploadError } = await supabase.storage
-        .from('avatars')
+        .from('profile-pic')
         .upload(path, arrayBuffer, {
           contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
           upsert: true,
         })
       if (uploadError) throw uploadError
 
-      const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(path)
+      const { data: publicData } = supabase.storage.from('profile-pic').getPublicUrl(path)
       const publicUrl = publicData.publicUrl
 
       const { error: updateError } = await supabase.auth.updateUser({
@@ -309,14 +325,20 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={[styles.header, { borderBottomColor: c.borderSubtle }]}>
-        <Text style={[styles.title, { color: c.primaryText }]}>Profile</Text>
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => setFindFriendsOpen(true)}
+          style={styles.hamburger}
+          activeOpacity={0.6}
+        >
+          <Ionicons name="person-add-outline" size={22} color={c.primaryText} />
+        </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setDrawerOpen(true)}
           style={styles.hamburger}
           activeOpacity={0.6}
         >
-          <Ionicons name="menu" size={24} color={c.primaryText} />
+          <Ionicons name="settings-outline" size={22} color={c.primaryText} />
         </TouchableOpacity>
       </View>
 
@@ -326,6 +348,13 @@ export default function ProfileScreen() {
         numColumns={GRID_COLS}
         contentContainerStyle={styles.scroll}
         columnWrapperStyle={reviews.length > 0 ? styles.gridRow : undefined}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={c.primaryText}
+          />
+        }
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View style={styles.headerWrap}>
@@ -363,25 +392,34 @@ export default function ProfileScreen() {
                   ? 'Guest'
                   : profile?.username
                     ? `@${profile.username}`
-                    : user?.email}
+                    : 'Member'}
               </Text>
               <Text style={[styles.subtitle, { color: c.secondaryText }]}>
                 {isGuest
                   ? 'Sign in to save your ratings'
-                  : profile?.username && user?.email
-                    ? user.email
-                    : memberSince
-                      ? `Member since ${memberSince}`
-                      : 'Member'}
+                  : memberSince
+                    ? `Member since ${memberSince}`
+                    : 'Member'}
               </Text>
             </View>
 
             {!isGuest && (
-              <View style={styles.statsRow}>
-                <StatBox c={c} value={String(stats.reviewCount)} label="Reviews" />
-                <StatBox c={c} value={String(friends.length)} label="Following" />
-                <StatBox c={c} value={String(followerCount)} label="Followers" />
-              </View>
+              <>
+                <View style={styles.statsRow}>
+                  <StatBox c={c} value={String(stats.reviewCount)} label="Reviews" />
+                  <StatBox c={c} value={String(friends.length)} label="Following" />
+                  <StatBox c={c} value={String(followerCount)} label="Followers" />
+                </View>
+                <View style={[styles.bobaScoreCard, { backgroundColor: c.accent }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.bobaScoreLabel, { color: c.accentText }]}>Sip Score</Text>
+                    <Text style={[styles.bobaScoreValue, { color: c.accentText }]}>
+                      {bobaScore.toLocaleString()}
+                    </Text>
+                  </View>
+                  <Ionicons name="trophy" size={28} color={c.accentText} style={{ opacity: 0.8 }} />
+                </View>
+              </>
             )}
 
             {!isGuest && (
@@ -757,7 +795,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingTop: 8,
-    paddingBottom: 14,
+    paddingBottom: 6,
     borderBottomWidth: 1,
   },
   title: { fontSize: 20, fontWeight: '700', paddingLeft: 8 },
@@ -812,6 +850,17 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 13 },
 
   statsRow: { flexDirection: 'row', gap: 10 },
+  bobaScoreCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 12,
+    gap: 10,
+  },
+  bobaScoreLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase', opacity: 0.75 },
+  bobaScoreValue: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginTop: 2 },
   friendsBlock: { gap: 8 },
   friendsHeader: {
     flexDirection: 'row',

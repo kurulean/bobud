@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   StyleSheet, Text, View, FlatList, TouchableOpacity,
-  Modal, Pressable, Animated, Dimensions, Easing, TextInput,
+  Modal, Pressable, Animated, Dimensions, Easing, TextInput, RefreshControl,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useMapStore, ShopWithDistance } from '../../src/stores/mapStore'
 import { haversineDistance } from '../../src/lib/geo'
 import { DrinkTag } from '../../src/types'
+import { supabase } from '../../src/lib/supabase'
 import { useColors } from '../../src/hooks/useColors'
 
 const DEFAULT_LOCATION = { latitude: 33.6846, longitude: -117.8265 }
@@ -25,11 +26,48 @@ const DRINK_FILTERS: Array<{ tag: DrinkTag | 'All'; emoji: string }> = [
 ]
 
 export default function LeaderboardScreen() {
-  const { radius, userLocation, shops, setSelectedShop } = useMapStore()
+  const { radius, userLocation, shops, setSelectedShop, fetchShops } = useMapStore()
   const [activeTag, setActiveTag] = useState<DrinkTag | 'All'>('All')
   const [filterOpen, setFilterOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [typeStats, setTypeStats] = useState<Record<string, { rating: number; review_count: number }>>({})
+
+  const loadTypeStats = useCallback(async (tag: DrinkTag) => {
+    const { data, error } = await supabase
+      .from('shop_drink_ratings')
+      .select('shop_id, rating, review_count')
+      .eq('drink_type', tag)
+    if (error) {
+      console.error('[Leaderboard] type stats fetch failed:', error.message)
+      setTypeStats({})
+      return
+    }
+    const map: Record<string, { rating: number; review_count: number }> = {}
+    for (const r of data ?? []) {
+      map[(r as any).shop_id] = {
+        rating: Number((r as any).rating),
+        review_count: Number((r as any).review_count),
+      }
+    }
+    setTypeStats(map)
+  }, [])
+
+  useEffect(() => {
+    if (activeTag === 'All') {
+      setTypeStats({})
+    } else {
+      loadTypeStats(activeTag as DrinkTag)
+    }
+  }, [activeTag, loadTypeStats])
+
+  async function onRefresh() {
+    setRefreshing(true)
+    await fetchShops()
+    if (activeTag !== 'All') await loadTypeStats(activeTag as DrinkTag)
+    setRefreshing(false)
+  }
   const loc = userLocation ?? DEFAULT_LOCATION
   const c = useColors()
   const insets = useSafeAreaInsets()
@@ -79,21 +117,48 @@ export default function LeaderboardScreen() {
 
   const rankedShops = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    return shops
-      .map(shop => ({
-        ...shop,
-        distance: haversineDistance(loc.latitude, loc.longitude, shop.lat, shop.lng),
-      }))
+    const M = 10
+    const useTypeStats = activeTag !== 'All'
+
+    const shopsWithStats = shops.map(shop => {
+      if (useTypeStats) {
+        const stat = typeStats[shop.id]
+        return {
+          shop,
+          rating: stat?.rating ?? 0,
+          reviewCount: stat?.review_count ?? 0,
+        }
+      }
+      return { shop, rating: shop.rating, reviewCount: shop.review_count }
+    })
+
+    const rated = shopsWithStats.filter(x => x.reviewCount > 0)
+    const totalReviews = rated.reduce((sum, x) => sum + x.reviewCount, 0)
+    const C = totalReviews > 0
+      ? rated.reduce((sum, x) => sum + x.rating * x.reviewCount, 0) / totalReviews
+      : 0
+
+    return shopsWithStats
+      .map(({ shop, rating, reviewCount }) => {
+        const score = (reviewCount / (reviewCount + M)) * rating + (M / (reviewCount + M)) * C
+        return {
+          ...shop,
+          rating,
+          review_count: reviewCount,
+          distance: haversineDistance(loc.latitude, loc.longitude, shop.lat, shop.lng),
+          score,
+        }
+      })
+      .filter(shop => shop.review_count > 0)
       .filter(shop => shop.distance <= radius)
-      .filter(shop => activeTag === 'All' || shop.tags?.includes(activeTag))
       .filter(shop =>
         !q
           || shop.name.toLowerCase().includes(q)
           || shop.address?.toLowerCase().includes(q)
       )
-      .sort((a, b) => b.rating - a.rating)
+      .sort((a, b) => b.score - a.score)
       .slice(0, TOP_N)
-  }, [shops, loc, radius, activeTag, searchQuery])
+  }, [shops, loc, radius, activeTag, searchQuery, typeStats])
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top']}>
@@ -151,6 +216,13 @@ export default function LeaderboardScreen() {
         keyExtractor={item => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={c.primaryText}
+          />
+        }
         ListEmptyComponent={
           <Text style={[styles.empty, { color: c.placeholder }]}>No shops within {radius} mi</Text>
         }

@@ -1,12 +1,8 @@
-import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs'
-import { withLayoutContext } from 'expo-router'
+import { Tabs } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { View, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useColors } from '../../src/hooks/useColors'
-
-const { Navigator } = createMaterialTopTabNavigator()
-const MaterialTopTabs = withLayoutContext(Navigator)
 
 function TabIcon({
   focused, name, active, color,
@@ -33,12 +29,17 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets()
 
   return (
-    <MaterialTopTabs
-      tabBarPosition="bottom"
+    <Tabs
       screenOptions={{
+        headerShown: false,
+        animation: 'fade',
+        transitionSpec: {
+          animation: 'timing',
+          config: { duration: 80 },
+        },
         tabBarShowLabel: false,
-        tabBarShowIcon: true,
-        tabBarIndicatorStyle: { backgroundColor: c.accent, height: 2, top: 0 },
+        tabBarActiveTintColor: c.primaryText,
+        tabBarInactiveTintColor: c.primaryText,
         tabBarStyle: {
           backgroundColor: c.background,
           borderTopColor: c.borderSubtle,
@@ -48,56 +49,52 @@ export default function TabLayout() {
           elevation: 0,
           shadowOpacity: 0,
         },
-        tabBarItemStyle: {
-          paddingVertical: 0,
+        sceneStyle: {
+          backgroundColor: c.background,
         },
-        tabBarPressColor: 'transparent',
-        swipeEnabled: true,
-        animationEnabled: true,
-        lazy: true,
       }}
     >
-      <MaterialTopTabs.Screen
+      <Tabs.Screen
         name="leaderboard"
         options={{
-          tabBarIcon: ({ focused }: { focused: boolean }) => (
+          tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused} name="trophy-outline" active="trophy" color={c.primaryText} />
           ),
         }}
       />
-      <MaterialTopTabs.Screen
+      <Tabs.Screen
         name="index"
         options={{
-          tabBarIcon: ({ focused }: { focused: boolean }) => (
+          tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused} name="map-outline" active="map" color={c.primaryText} />
           ),
         }}
       />
-      <MaterialTopTabs.Screen
+      <Tabs.Screen
         name="camera"
         options={{
-          tabBarIcon: ({ focused }: { focused: boolean }) => (
+          tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused} name="camera-outline" active="camera" color={c.primaryText} />
           ),
         }}
       />
-      <MaterialTopTabs.Screen
-        name="ratings"
+      <Tabs.Screen
+        name="social"
         options={{
-          tabBarIcon: ({ focused }: { focused: boolean }) => (
-            <TabIcon focused={focused} name="star-outline" active="star" color={c.primaryText} />
+          tabBarIcon: ({ focused }) => (
+            <TabIcon focused={focused} name="albums-outline" active="albums" color={c.primaryText} />
           ),
         }}
       />
-      <MaterialTopTabs.Screen
+      <Tabs.Screen
         name="profile"
         options={{
-          tabBarIcon: ({ focused }: { focused: boolean }) => (
+          tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused} name="person-circle-outline" active="person-circle" color={c.primaryText} />
           ),
         }}
       />
-    </MaterialTopTabs>
+    </Tabs>
   )
 }
 

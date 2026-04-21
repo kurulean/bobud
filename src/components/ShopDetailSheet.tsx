@@ -70,7 +70,7 @@ interface Props {
 
 const { height: SCREEN_H } = Dimensions.get('window')
 const COLLAPSED_H = 180
-const EXPANDED_H = Math.min(SCREEN_H * 0.75, 640)
+const EXPANDED_H = SCREEN_H * 0.85
 
 export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
   const translateY = useRef(new Animated.Value(EXPANDED_H - COLLAPSED_H)).current
@@ -80,7 +80,17 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [menu, setMenu] = useState<MenuItem[]>([])
   const [section, setSection] = useState<'menu' | 'reviews'>('menu')
+  const [drinkFilter, setDrinkFilter] = useState<string | null>(null)
   const c = useColors()
+
+  const filteredReviews = drinkFilter
+    ? reviews.filter(r => matchesDrink(r.drink_name, drinkFilter))
+    : reviews
+
+  function handleMenuItemPress(name: string) {
+    setDrinkFilter(name)
+    setSection('reviews')
+  }
 
   // Snap helpers
   const snapTo = (offset: number) => {
@@ -148,8 +158,10 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4,
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dy) > 10 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderMove: (_, g) => {
         const next = currentOffset.current + g.dy
         const clamped = Math.max(0, Math.min(EXPANDED_H - COLLAPSED_H, next))
@@ -157,7 +169,6 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
       },
       onPanResponderRelease: (_, g) => {
         const next = currentOffset.current + g.dy
-        // Snap based on position + velocity
         if (g.vy > 0.5) {
           snapTo(EXPANDED_H - COLLAPSED_H)
         } else if (g.vy < -0.5) {
@@ -210,7 +221,7 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
       <View style={styles.tabsRow}>
         <TouchableOpacity
           style={[styles.tab, section === 'menu' && { borderBottomColor: c.accent }]}
-          onPress={() => setSection('menu')}
+          onPress={() => { setSection('menu'); setDrinkFilter(null) }}
           activeOpacity={0.7}
         >
           <Text style={[
@@ -246,28 +257,55 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
               keyExtractor={g => g.category ?? 'uncategorized'}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 12 }}
-              renderItem={({ item }) => <MenuCategory group={item} c={c} />}
+              renderItem={({ item }) => (
+                <MenuCategory group={item} c={c} onItemPress={handleMenuItemPress} />
+              )}
             />
           )
         ) : (
-          reviews.length === 0 ? (
-            <Text style={[styles.emptyState, { color: c.placeholder }]}>No reviews yet. Be the first!</Text>
-          ) : (
-            <FlatList
-              data={reviews}
-              keyExtractor={r => r.id}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 12 }}
-              renderItem={({ item }) => (
-                <ReviewRow review={item} c={c} currentUserId={currentUser?.id} />
-              )}
-              ItemSeparatorComponent={() => <View style={[styles.reviewDivider, { backgroundColor: c.border }]} />}
-            />
-          )
+          <>
+            {drinkFilter && (
+              <View style={[styles.filterChip, { backgroundColor: c.accent }]}>
+                <Ionicons name="filter" size={12} color={c.accentText} />
+                <Text style={[styles.filterChipLabel, { color: c.accentText }]} numberOfLines={1}>
+                  {drinkFilter}
+                </Text>
+                <TouchableOpacity onPress={() => setDrinkFilter(null)} hitSlop={8}>
+                  <Ionicons name="close" size={14} color={c.accentText} />
+                </TouchableOpacity>
+              </View>
+            )}
+            {filteredReviews.length === 0 ? (
+              <Text style={[styles.emptyState, { color: c.placeholder }]}>
+                {drinkFilter
+                  ? `No reviews for "${drinkFilter}" yet.`
+                  : 'No reviews yet. Be the first!'}
+              </Text>
+            ) : (
+              <FlatList
+                data={filteredReviews}
+                keyExtractor={r => r.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 12 }}
+                renderItem={({ item }) => (
+                  <ReviewRow review={item} c={c} currentUserId={currentUser?.id} />
+                )}
+                ItemSeparatorComponent={() => <View style={[styles.reviewDivider, { backgroundColor: c.border }]} />}
+              />
+            )}
+          </>
         )}
       </View>
     </Animated.View>
   )
+}
+
+function matchesDrink(reviewDrinkName: string | null, filter: string): boolean {
+  if (!reviewDrinkName) return false
+  const a = reviewDrinkName.toLowerCase().trim()
+  const b = filter.toLowerCase().trim()
+  if (!a || !b) return false
+  return a === b || a.includes(b) || b.includes(a)
 }
 
 function groupMenu(items: MenuItem[]): { category: string | null; items: MenuItem[] }[] {
@@ -280,9 +318,10 @@ function groupMenu(items: MenuItem[]): { category: string | null; items: MenuIte
   return Array.from(map.entries()).map(([category, items]) => ({ category, items }))
 }
 
-function MenuCategory({ group, c }: {
+function MenuCategory({ group, c, onItemPress }: {
   group: { category: string | null; items: MenuItem[] }
   c: ColorPalette
+  onItemPress: (name: string) => void
 }) {
   return (
     <View style={{ marginBottom: 14 }}>
@@ -292,7 +331,12 @@ function MenuCategory({ group, c }: {
         </Text>
       )}
       {group.items.map(item => (
-        <View key={item.id} style={styles.menuItemRow}>
+        <TouchableOpacity
+          key={item.id}
+          style={styles.menuItemRow}
+          onPress={() => onItemPress(item.name)}
+          activeOpacity={0.6}
+        >
           <View style={{ flex: 1 }}>
             <Text style={[styles.menuItemName, { color: c.primaryText }]} numberOfLines={1}>
               {item.name}
@@ -308,7 +352,8 @@ function MenuCategory({ group, c }: {
               ${Number(item.price).toFixed(2)}
             </Text>
           )}
-        </View>
+          <Ionicons name="chevron-forward" size={14} color={c.placeholder} />
+        </TouchableOpacity>
       ))}
     </View>
   )
@@ -505,4 +550,16 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#2A2A2A',
   },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginBottom: 10,
+    maxWidth: '100%',
+  },
+  filterChipLabel: { fontSize: 12, fontWeight: '600', flexShrink: 1 },
 })
