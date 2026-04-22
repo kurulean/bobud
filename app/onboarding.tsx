@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../src/lib/supabase'
 import { useAuthStore } from '../src/stores/authStore'
 import { useColors } from '../src/hooks/useColors'
+import { assertClean } from '../src/lib/profanity'
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/
 const MIN_LEN = 3
@@ -58,6 +59,8 @@ export default function OnboardingScreen() {
   async function handleSubmit() {
     if (!user) return
     if (!isValidFormat || !available) return
+    const profMsg = assertClean(trimmed, 'username')
+    if (profMsg) { Alert.alert('Pick a different username', profMsg); return }
     try {
       setSubmitting(true)
       const { data, error } = await supabase

@@ -13,6 +13,7 @@ import { decode as decodeBase64 } from 'base64-arraybuffer'
 import { supabase } from '../../src/lib/supabase'
 import { useAuthStore } from '../../src/stores/authStore'
 import { useColors } from '../../src/hooks/useColors'
+import { compressImage } from '../../src/lib/image'
 import type { ColorPalette } from '../../src/lib/colors'
 
 const SCREEN_WIDTH = Dimensions.get('window').width
@@ -225,8 +226,9 @@ export default function ProfileScreen() {
 
     try {
       setUploadingAvatar(true)
-      const uri = result.assets[0].uri
-      const ext = uri.split('.').pop()?.toLowerCase() || 'jpg'
+      const rawUri = result.assets[0].uri
+      const uri = await compressImage(rawUri, 512, 0.75)
+      const ext = 'jpg'
       const path = `${user.id}/avatar_${Date.now()}.${ext}`
 
       const base64 = await FileSystem.readAsStringAsync(uri, {
@@ -308,6 +310,43 @@ export default function ProfileScreen() {
         },
       },
     ])
+  }
+
+  function handleDeleteAccount() {
+    Alert.alert(
+      'Delete account',
+      'This permanently deletes your profile, reviews, comments, and followers. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete forever',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Are you absolutely sure?',
+              'Type-free confirmation — this will erase your account immediately.',
+              [
+                { text: 'Keep my account', style: 'cancel' },
+                {
+                  text: 'Yes, delete everything',
+                  style: 'destructive',
+                  onPress: async () => {
+                    const { error } = await supabase.rpc('delete_my_account')
+                    if (error) {
+                      Alert.alert('Delete failed', error.message)
+                      return
+                    }
+                    setDrawerOpen(false)
+                    reset()
+                    await supabase.auth.signOut()
+                  },
+                },
+              ]
+            )
+          },
+        },
+      ]
+    )
   }
 
   function comingSoon(feature: string) {
@@ -565,6 +604,18 @@ export default function ProfileScreen() {
             >
               <Text style={[styles.signOutLabel, { color: c.error }]}>Sign out</Text>
             </TouchableOpacity>
+
+            {!isGuest && (
+              <TouchableOpacity
+                style={styles.deleteAccountButton}
+                onPress={handleDeleteAccount}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.deleteAccountLabel, { color: c.error }]}>
+                  Delete account
+                </Text>
+              </TouchableOpacity>
+            )}
           </ScrollView>
         </Animated.View>
       </Modal>
@@ -1128,4 +1179,10 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   signOutLabel: { fontSize: 15, fontWeight: '600' },
+  deleteAccountButton: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  deleteAccountLabel: { fontSize: 13, fontWeight: '500', opacity: 0.8 },
 })

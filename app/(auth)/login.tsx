@@ -99,6 +99,21 @@ export default function LoginScreen() {
     }
   }
 
+  async function handleForgotPassword() {
+    if (!email.trim()) {
+      Alert.alert('Enter your email', "Type the email for the account you'd like to reset, then tap Forgot password again.")
+      return
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'bobud://reset-password',
+    })
+    if (error) {
+      Alert.alert('Could not send email', error.message)
+      return
+    }
+    Alert.alert('Check your email', `We sent a password reset link to ${email}. Tap it on this device to continue.`)
+  }
+
   async function handleSubmit() {
     if (!email || !password) {
       Alert.alert('Missing fields', 'Please enter your email and password.')
@@ -176,6 +191,17 @@ export default function LoginScreen() {
                 : 'Already have an account? Sign in'}
             </Text>
           </TouchableOpacity>
+
+          {mode === 'signin' && (
+            <TouchableOpacity
+              onPress={handleForgotPassword}
+              activeOpacity={0.6}
+            >
+              <Text style={[styles.toggleLabel, { color: c.placeholder }]}>
+                Forgot password?
+              </Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.dividerRow}>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />

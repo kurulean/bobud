@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { ShopWithDistance } from '../stores/mapStore'
 import { useAuthStore } from '../stores/authStore'
+import { useBlocks } from '../hooks/useBlocks'
 import { useColors } from '../hooks/useColors'
 import type { ColorPalette } from '../lib/colors'
 
@@ -43,6 +44,19 @@ async function reportReview(reviewId: string, userId: string) {
   )
 }
 
+function showReviewActions(opts: {
+  reviewId: string
+  reviewAuthorId: string
+  currentUserId: string
+  onBlock: () => void
+}) {
+  Alert.alert('Options', undefined, [
+    { text: 'Report review', onPress: () => reportReview(opts.reviewId, opts.currentUserId) },
+    { text: 'Block user', style: 'destructive', onPress: opts.onBlock },
+    { text: 'Cancel', style: 'cancel' },
+  ])
+}
+
 interface Review {
   id: string
   user_id: string
@@ -76,6 +90,7 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
   const translateY = useRef(new Animated.Value(EXPANDED_H - COLLAPSED_H)).current
   const currentOffset = useRef(EXPANDED_H - COLLAPSED_H)
   const currentUser = useAuthStore(s => s.user)
+  const { blockedIds, block } = useBlocks()
   const [reviews, setReviews] = useState<Review[]>([])
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [menu, setMenu] = useState<MenuItem[]>([])
@@ -83,9 +98,10 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
   const [drinkFilter, setDrinkFilter] = useState<string | null>(null)
   const c = useColors()
 
+  const visibleReviews = reviews.filter(r => !blockedIds.includes(r.user_id))
   const filteredReviews = drinkFilter
-    ? reviews.filter(r => matchesDrink(r.drink_name, drinkFilter))
-    : reviews
+    ? visibleReviews.filter(r => matchesDrink(r.drink_name, drinkFilter))
+    : visibleReviews
 
   function handleMenuItemPress(name: string) {
     setDrinkFilter(name)
@@ -288,7 +304,28 @@ export default function ShopDetailSheet({ shop, bottomInset, onClose }: Props) {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 12 }}
                 renderItem={({ item }) => (
-                  <ReviewRow review={item} c={c} currentUserId={currentUser?.id} />
+                  <ReviewRow
+                    review={item}
+                    c={c}
+                    currentUserId={currentUser?.id}
+                    onBlock={() => {
+                      Alert.alert(
+                        'Block user?',
+                        "You won't see their reviews or comments anymore.",
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Block',
+                            style: 'destructive',
+                            onPress: async () => {
+                              const { error } = await block(item.user_id)
+                              if (error) Alert.alert('Block failed', error)
+                            },
+                          },
+                        ]
+                      )
+                    }}
+                  />
                 )}
                 ItemSeparatorComponent={() => <View style={[styles.reviewDivider, { backgroundColor: c.border }]} />}
               />
@@ -359,10 +396,11 @@ function MenuCategory({ group, c, onItemPress }: {
   )
 }
 
-function ReviewRow({ review, c, currentUserId }: {
+function ReviewRow({ review, c, currentUserId, onBlock }: {
   review: Review
   c: ColorPalette
   currentUserId?: string
+  onBlock: () => void
 }) {
   const canReport = !!currentUserId && currentUserId !== review.user_id
   return (
@@ -388,7 +426,12 @@ function ReviewRow({ review, c, currentUserId }: {
           <View style={{ flex: 1 }} />
           {canReport && (
             <TouchableOpacity
-              onPress={() => reportReview(review.id, currentUserId!)}
+              onPress={() => showReviewActions({
+                reviewId: review.id,
+                reviewAuthorId: review.user_id,
+                currentUserId: currentUserId!,
+                onBlock,
+              })}
               hitSlop={8}
               style={styles.reportBtn}
             >

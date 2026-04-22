@@ -19,8 +19,13 @@ import { Shop, DrinkTag } from '../../src/types'
 
 const DRINK_TYPES: DrinkTag[] = ['Milk Tea', 'Fruit Tea', 'Matcha', 'Slush', 'Classic']
 import { useColors } from '../../src/hooks/useColors'
+import { assertClean } from '../../src/lib/profanity'
+import { compressImage } from '../../src/lib/image'
 
-const AUTO_DETECT_RADIUS_MILES = 0.1 // ~500 feet
+// Two-stage flow: 'capture' shows the live camera + shutter,
+// 'rate' shows the preview + rating form. No separate routes — just a state machine.
+
+const AUTO_DETECT_RADIUS_MILES = 0.1 // ~500 feet — tight enough that we only auto-fill when the user is physically at the shop
 
 type Stage = 'capture' | 'rate'
 
@@ -52,6 +57,8 @@ export default function CameraScreen() {
     return shops.filter(s => s.name.toLowerCase().includes(q))
   }, [shops, shopSearch])
 
+  // Load the selected shop's menu so we can autocomplete the drink name field.
+  // `cancelled` guards against setting state after the shop has changed mid-fetch.
   useEffect(() => {
     if (!selectedShop?.id) { setShopMenu([]); return }
     let cancelled = false
@@ -65,6 +72,8 @@ export default function CameraScreen() {
     return () => { cancelled = true }
   }, [selectedShop?.id])
 
+  // Suggestions: top 5 menu items whose name contains the typed substring.
+  // Hide the dropdown once the user's input exactly matches a menu item — no point suggesting the thing they already typed.
   const drinkSuggestions = useMemo(() => {
     const q = drinkName.trim().toLowerCase()
     if (!q || shopMenu.length === 0) return []
@@ -72,6 +81,9 @@ export default function CameraScreen() {
     return shopMenu.filter(n => n.toLowerCase().includes(q)).slice(0, 5)
   }, [drinkName, shopMenu])
 
+  // Returns the closest shop within AUTO_DETECT_RADIUS_MILES, or null.
+  // Silently returns null on any error (permission denied, no GPS fix, etc.) —
+  // this is a convenience feature, not a required step.
   async function detectNearestShop() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync()
@@ -94,6 +106,8 @@ export default function CameraScreen() {
     }
   }
 
+  // Shutter press: heavy haptic → capture → move to rate stage.
+  // We only auto-detect the shop if the user hasn't already picked one — we don't want to overwrite an explicit choice.
   async function takePicture() {
     if (!cameraRef.current) return
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
@@ -123,12 +137,17 @@ export default function CameraScreen() {
     setAutoDetected(false)
   }
 
+  // Uploads the local image URI to Supabase Storage and returns its public URL.
+  // Path is scoped by user id so RLS policies can enforce ownership.
   async function uploadPhoto(uri: string): Promise<string | null> {
     try {
-      const ext = (uri.split('.').pop() || 'jpg').toLowerCase()
+      const compressedUri = await compressImage(uri, 1080, 0.7)
+      uri = compressedUri
+      const ext = 'jpg'
       const path = `${user?.id ?? 'guest'}/${Date.now()}.${ext}`
 
-      // Read the file as base64 (works reliably on iOS, unlike fetch + blob)
+      // Base64 → ArrayBuffer path. We can't use `fetch(uri).then(r => r.blob())`
+      // on React Native iOS — it yields an empty blob and the bucket ends up with 0-byte files.
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       })
@@ -157,6 +176,9 @@ export default function CameraScreen() {
     }
   }
 
+  // Validate → upload photo (if any) → insert the review row.
+  // Reviews go in with the DB default status ('pending'); silent moderation approves them server-side,
+  // so we don't tell the user their review is held for review.
   async function handleSubmit() {
     if (isGuest) {
       Alert.alert('Sign up required', 'You must create an account to post reviews.')
@@ -165,6 +187,8 @@ export default function CameraScreen() {
     if (!selectedShop) { Alert.alert('Missing info', 'Please select a shop.'); return }
     if (rating === 0) { Alert.alert('Missing info', 'Please give a rating.'); return }
     if (!user) return
+    const bad = assertClean(drinkName, 'drink name') ?? assertClean(notes, 'review')
+    if (bad) { Alert.alert('Language not allowed', bad); return }
 
     try {
       setSubmitting(true)
@@ -191,7 +215,10 @@ export default function CameraScreen() {
     }
   }
 
-  // Camera permission screen
+  // ---- RENDER ----
+  // Three possible views: permission gate, capture stage, rate stage.
+  // The first render before permissions resolve shows a plain black view to avoid a flash.
+
   if (!permission) return <View style={[styles.black, { backgroundColor: c.background }]} />
   if (!permission.granted) {
     return (
@@ -205,7 +232,7 @@ export default function CameraScreen() {
     )
   }
 
-  // Capture stage
+  // Capture stage: full-bleed camera preview, shutter button centered, flip button in the bottom-right.
   if (stage === 'capture') {
     return (
       <View style={styles.black}>
@@ -235,7 +262,8 @@ export default function CameraScreen() {
     )
   }
 
-  // Rate stage
+  // Rate stage: preview + star rating + shop/drink/type card + notes + submit.
+  // Index 0 is unused so we can do `ratingLabels[rating]` directly without offsetting.
   const ratingLabels = ['', 'Nope', 'Meh', 'Okay', 'Great', 'Amazing']
 
   return (

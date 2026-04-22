@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { supabase } from '../src/lib/supabase'
 import { useAuthStore } from '../src/stores/authStore'
 import { useThemeStore } from '../src/stores/themeStore'
+import OfflineBanner from '../src/components/OfflineBanner'
 
 export default function RootLayout() {
   const session = useAuthStore(s => s.session)
@@ -100,6 +101,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: '#0D0D0D' },
         }}
       />
+      <OfflineBanner />
       {showSplash && (
         <Animated.View
           style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}

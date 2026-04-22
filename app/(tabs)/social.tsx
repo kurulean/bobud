@@ -7,7 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../src/lib/supabase'
 import { useAuthStore } from '../../src/stores/authStore'
+import { useBlocks } from '../../src/hooks/useBlocks'
 import { useColors } from '../../src/hooks/useColors'
+import { assertClean } from '../../src/lib/profanity'
+import { FeedCardSkeleton } from '../../src/components/Skeleton'
 import type { ColorPalette } from '../../src/lib/colors'
 
 type FeedMode = 'friends' | 'public'
@@ -37,6 +40,7 @@ interface Comment {
 
 export default function SocialScreen() {
   const user = useAuthStore(s => s.user)
+  const { blockedIds, block } = useBlocks()
   const c = useColors()
   const [mode, setMode] = useState<FeedMode>('public')
   const [reviews, setReviews] = useState<FeedReview[]>([])
@@ -146,10 +150,14 @@ export default function SocialScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} color={c.primaryText} />
+        <View style={{ gap: 18, paddingBottom: 40 }}>
+          <FeedCardSkeleton />
+          <FeedCardSkeleton />
+          <FeedCardSkeleton />
+        </View>
       ) : (
         <FlatList
-          data={reviews}
+          data={reviews.filter(r => !blockedIds.includes(r.user_id))}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
@@ -179,17 +187,41 @@ export default function SocialScreen() {
               </Text>
             </View>
           }
-          renderItem={({ item }) => <FeedCard review={item} c={c} currentUserId={user?.id ?? null} />}
+          renderItem={({ item }) => (
+            <FeedCard
+              review={item}
+              c={c}
+              currentUserId={user?.id ?? null}
+              onBlock={async () => {
+                Alert.alert(
+                  `Block @${item.profiles?.username ?? 'user'}?`,
+                  "You won't see their posts or comments anymore.",
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Block',
+                      style: 'destructive',
+                      onPress: async () => {
+                        const { error } = await block(item.user_id)
+                        if (error) Alert.alert('Block failed', error)
+                      },
+                    },
+                  ]
+                )
+              }}
+            />
+          )}
         />
       )}
     </SafeAreaView>
   )
 }
 
-function FeedCard({ review, c, currentUserId }: {
+function FeedCard({ review, c, currentUserId, onBlock }: {
   review: FeedReview
   c: ColorPalette
   currentUserId: string | null
+  onBlock: () => void
 }) {
   const username = review.profiles?.username ?? 'anonymous'
   const avatarUrl = review.profiles?.avatar_url ?? null
@@ -228,6 +260,8 @@ function FeedCard({ review, c, currentUserId }: {
   async function postComment() {
     const text = draft.trim()
     if (!text || !currentUserId) return
+    const bad = assertClean(text, 'comment')
+    if (bad) { Alert.alert('Language not allowed', bad); return }
     setPosting(true)
     const { data, error } = await supabase
       .from('review_comments')
@@ -277,6 +311,11 @@ function FeedCard({ review, c, currentUserId }: {
         <Text style={[styles.cardDate, { color: c.placeholder }]}>
           {timeAgo(review.created_at)}
         </Text>
+        {currentUserId && currentUserId !== review.user_id && (
+          <TouchableOpacity onPress={onBlock} hitSlop={8} style={{ paddingLeft: 6 }}>
+            <Ionicons name="ellipsis-horizontal" size={16} color={c.placeholder} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {review.photo_url && (
